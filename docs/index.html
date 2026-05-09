@@ -133,6 +133,13 @@
       transform: translateY(-2px);
     }
 
+    .download-note {
+      margin: 0.75rem 0 0;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
     .pill {
       display: inline-flex;
       align-items: center;
@@ -298,10 +305,10 @@
     <header>
       <h1>Scryptian</h1>
       <p class="tagline">
-        Shortcut to your local AI skills.
+        One key to <strong>transform</strong> any text.
       </p>
       <p class="value-punch">
-        <strong>Fast.</strong> <strong>Absolutely free.</strong> <strong>Offline.</strong>
+        <strong>Fast.</strong> <strong>Absolutely free.</strong> <strong>OFFLINE.</strong> <strong>Private.</strong>
       </p>
       <div class="cta">
         <a class="primary" href="https://github.com/adrianium/Scryptian/releases/download/v0.3.0/Scryptian.exe">
@@ -317,6 +324,7 @@
           View on GitHub
         </a>
       </div>
+      <p class="download-note">≈75&nbsp;MB</p>
 
       <div class="hero-video">
         <div class="hero-video__label">Demo</div>
@@ -344,22 +352,19 @@
         <span class="pill">Skills</span>
       </summary>
       <div class="panel-content skills-panel">
-        <div class="skill-item">
-          <h4>Translate</h4>
-          <p>Translate highlighted text into your system language while keeping structure, tone, and formatting intact.</p>
-        </div>
-        <div class="skill-item">
-          <h4>Summarize</h4>
-          <p>Turn long passages into a crisp 2–4 sentence summary ready to paste anywhere.</p>
-        </div>
-        <div class="skill-item">
-          <h4>Improve text</h4>
-          <p>Polish draft copy so it reads smooth, confident, and free of repeats.</p>
-        </div>
-        <p class="skills-note">Bring your own scripts: drop a single <code>.py</code> into <code>skills/</code> (with <code>run(text)</code>) to add a new skill.</p>
+        <div class="skill-item"><h4>Translate to my language</h4><p>Auto-detects and translates to your system language.</p></div>
+        <div class="skill-item"><h4>Translate to English</h4><p>Natural idiomatic English from any language.</p></div>
+        <div class="skill-item"><h4>Summarize</h4><p>2–4 sentence summary of any text.</p></div>
+        <div class="skill-item"><h4>Improve writing</h4><p>Clearer, more confident, no fluff.</p></div>
+        <div class="skill-item"><h4>Fix spelling and grammar</h4><p>Catches typos and grammar mistakes.</p></div>
+        <div class="skill-item"><h4>Change tone to friendly</h4><p>Warm and approachable rewrite.</p></div>
+        <div class="skill-item"><h4>Change tone to professional</h4><p>Formal and polished rewrite.</p></div>
+        <div class="skill-item"><h4>Explain this in simple terms</h4><p>Like explaining to a 10-year-old.</p></div>
+        <p class="skills-note">Add your own: one <code>.py</code> file in <code>skills/</code> = one skill.</p>
       </div>
     </details>
 
+    <!--
     <details class="panel">
       <summary>
         <span class="pill">First launch</span>
@@ -371,6 +376,7 @@
         </p>
       </div>
     </details>
+    -->
 
     <footer>
       <span>&copy; <span id="year"></span> Scryptian.</span>

@@ -1,4 +1,4 @@
-# @title: Translate
+# @title: Translate to my language
 # @description: Translate text to your system language
 # @author: Scryptian
 

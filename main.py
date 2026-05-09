@@ -139,12 +139,13 @@ class ScryptianBar:
         self.window.configure(bg="#313244")
 
         # ── Size and center position ──
-        bar_width = 560
-        bar_height = 42
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
+        bar_width = max(560, int(screen_w * 0.4))
+        bar_height = 52
         x = (screen_w - bar_width) // 2
         y = int(screen_h * 0.3)
+        self._bar_width = bar_width
 
         self.window.geometry(f"{bar_width}x{bar_height}+{x}+{y}")
         self.window.update_idletasks()
@@ -160,7 +161,7 @@ class ScryptianBar:
         # ── Input field ──
         self.entry = tk.Entry(
             self.container,
-            font=("Segoe UI", 13),
+            font=("Segoe UI", 16),
             bg="#1e1e2e",
             fg="#cdd6f4",
             disabledbackground="#1e1e2e",
@@ -174,7 +175,7 @@ class ScryptianBar:
         self.placeholder = tk.Label(
             self.container,
             text="Works with text from clipboard",
-            font=("Segoe UI", 13),
+            font=("Segoe UI", 16),
             bg="#1e1e2e",
             fg="#585b70",
         )
@@ -190,24 +191,14 @@ class ScryptianBar:
         self.window.bind("<Escape>", lambda e: self._hide())
 
         # ── Result list (hidden until input) ──
-        self.listbox = tk.Listbox(
-            self.container,
-            font=("Segoe UI", 11),
-            bg="#1e1e2e",
-            fg="#a6adc8",
-            selectbackground="#45475a",
-            selectforeground="#cdd6f4",
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            activestyle="none",
-        )
+        self.list_frame = tk.Frame(self.container, bg="#1e1e2e")
+        self._skill_rows = []
 
         # ── Response area (hidden until result) ──
         self.separator = tk.Frame(self.container, bg="#45475a", height=1)
         self.result_box = tk.Text(
             self.container,
-            font=("Consolas", 11),
+            font=("Consolas", 13),
             bg="#1e1e2e",
             fg="#a6adc8",
             relief="flat",
@@ -220,21 +211,21 @@ class ScryptianBar:
         tk.Label(
             self.skill_hint,
             text="Ctrl+Alt — hide",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 10),
             bg="#1e1e2e",
             fg="#585b70",
         ).pack(side="left")
         tk.Label(
             self.skill_hint,
             text="Enter — run skill",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 10),
             bg="#1e1e2e",
             fg="#585b70",
         ).pack(side="right")
         self.hint_label = tk.Label(
             self.container,
             text="Enter — copy to clipboard and close",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 10),
             bg="#1e1e2e",
             fg="#585b70",
             anchor="e",
@@ -253,7 +244,7 @@ class ScryptianBar:
             self.last_result = self.pending_result
             self.pending_result = None
             self.processing = False
-            self.listbox.pack_forget()
+            self.list_frame.pack_forget()
             self.entry.config(state="disabled")
             self._show_result(self.last_result)
         else:
@@ -330,37 +321,73 @@ class ScryptianBar:
 
     def _render_list(self):
         """Renders the dropdown list."""
-        self.listbox.delete(0, tk.END)
+        # Clear old rows
+        for row in self._skill_rows:
+            row.destroy()
+        self._skill_rows = []
 
         if not self.filtered:
-            self.listbox.pack_forget()
+            self.list_frame.pack_forget()
             self.skill_hint.pack_forget()
-            self._resize(42)
+            self._resize(52)
             return
 
-        for p in self.filtered:
-            self.listbox.insert(tk.END, f"  {p['title']}  —  {p['description']}")
+        for i, p in enumerate(self.filtered):
+            row = self._make_row(p["title"], p["description"], i)
+            self._skill_rows.append(row)
 
         # "Add skill" shortcut — only when no filter is active
         self._has_add_item = False
         if not self.entry.get().strip():
-            self.listbox.insert(tk.END, "  + Add your own skill...")
+            row = self._make_row("+ Add your own skill", "", len(self.filtered))
+            self._skill_rows.append(row)
             self._has_add_item = True
 
-        num_items = self.listbox.size()
-        self.listbox.config(height=num_items)
-        self.listbox.pack(fill="x", padx=6, pady=(0, 2))
+        self.list_frame.pack(fill="x", padx=6, pady=(0, 2))
         self.skill_hint.pack(fill="x", padx=12, pady=(0, 6))
 
         self.window.update_idletasks()
         needed = self.container.winfo_reqheight()
         self._resize(needed + 4)
 
-        max_idx = len(self.filtered) - 1 + (1 if self._has_add_item else 0)
+        max_idx = len(self._skill_rows) - 1
         self.selected_index = max(0, min(self.selected_index, max_idx))
-        self.listbox.selection_clear(0, tk.END)
-        self.listbox.selection_set(self.selected_index)
-        self.listbox.see(self.selected_index)
+        self._highlight_row()
+
+    def _make_row(self, title, desc, idx):
+        """Creates a single skill row with title (bright) and description (dim)."""
+        row = tk.Frame(self.list_frame, bg="#1e1e2e", cursor="hand2")
+        row.pack(fill="x", padx=4, pady=1)
+
+        title_lbl = tk.Label(
+            row, text=f"  {title}", font=("Segoe UI", 13),
+            bg="#1e1e2e", fg="#cdd6f4", anchor="w",
+        )
+        title_lbl.pack(side="left")
+
+        # Click handler
+        row.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
+        title_lbl.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
+
+        return row
+
+    def _click_row(self, idx):
+        """Handle click on a skill row."""
+        self.selected_index = idx
+        self._highlight_row()
+        self._on_enter(None)
+
+    def _highlight_row(self):
+        """Highlights the selected row."""
+        for i, row in enumerate(self._skill_rows):
+            if i == self.selected_index:
+                row.config(bg="#45475a")
+                for child in row.winfo_children():
+                    child.config(bg="#45475a")
+            else:
+                row.config(bg="#1e1e2e")
+                for child in row.winfo_children():
+                    child.config(bg="#1e1e2e")
 
     def _resize(self, height):
         """Updates window height."""
@@ -372,15 +399,15 @@ class ScryptianBar:
         self.window.geometry(f"{wh[0]}x{height}+{parts[1]}+{parts[2]}")
 
     def _select_next(self, event):
-        if self.filtered:
-            max_idx = len(self.filtered) - 1 + (1 if self._has_add_item else 0)
+        if self._skill_rows:
+            max_idx = len(self._skill_rows) - 1
             self.selected_index = min(self.selected_index + 1, max_idx)
-            self._render_list()
+            self._highlight_row()
 
     def _select_prev(self, event):
-        if self.filtered:
+        if self._skill_rows:
             self.selected_index = max(self.selected_index - 1, 0)
-            self._render_list()
+            self._highlight_row()
 
     def _on_enter(self, event):
         """Runs the selected skill or copies the result."""
@@ -413,7 +440,7 @@ class ScryptianBar:
             return
 
         # Hide list, show status
-        self.listbox.pack_forget()
+        self.list_frame.pack_forget()
         self.skill_hint.pack_forget()
         self.entry.config(state="disabled")
         self._show_result(f"⚙ {skill['title']}  —  processing...")
@@ -532,8 +559,8 @@ class ScryptianBar:
         self.result_box.insert("1.0", text)
         self.result_box.config(state="disabled")
 
-        # Height estimate: ~45 chars per line at width 560
-        chars_per_line = 45
+        # Height estimate based on dynamic bar width
+        chars_per_line = max(40, self._bar_width // 12)
         visual_lines = 0
         for line in text.split("\n"):
             visual_lines += max(1, (len(line) // chars_per_line) + 1)
