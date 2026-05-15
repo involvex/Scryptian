@@ -612,7 +612,7 @@ def main():
     if os.path.exists(MODEL_PATH):
         print(f"[Scryptian] Model: {MODEL_FILE}")
     else:
-        print(f"[Scryptian] WARNING: Model not found. Run Run_Scryptian.bat to download it.")
+        print(f"[Scryptian] WARNING: Model not found. It will download on first skill use.")
 
     print(f"[Scryptian] Hotkey: {HOTKEY}")
     print("[Scryptian] Waiting...")

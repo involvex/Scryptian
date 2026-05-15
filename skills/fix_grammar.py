@@ -17,4 +17,4 @@ def run(text):
     """
     text: text from clipboard to fix spelling and grammar
     """
-    return bridge.generate(prompt(text))
+    return bridge.generate(prompt(text), think=True)

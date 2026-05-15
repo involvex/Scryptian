@@ -20,7 +20,7 @@ def _download_model(on_progress=None):
     telemetry.send("model_download_started")
 
     if on_progress:
-        on_progress("Downloading Qwen2.5-3B for AI skills (~2GB, one time only)...")
+        on_progress(f"Downloading {MODEL_FILE} for AI skills (one time only)...")
 
     try:
         try:
@@ -43,7 +43,7 @@ def _download_model(on_progress=None):
                         mb_done = downloaded // (1024 * 1024)
                         mb_total = total // (1024 * 1024)
                         if on_progress:
-                            on_progress(f"Downloading Qwen2.5-3B... {pct}%  ({mb_done}/{mb_total} MB)")
+                            on_progress(f"Downloading model... {pct}%  ({mb_done}/{mb_total} MB)")
         shutil.move(tmp_path, MODEL_PATH)
         telemetry.send("model_download_finished")
         if on_progress:
@@ -88,15 +88,16 @@ def _get_llm(on_progress=None):
 def _messages(prompt: str):
     """Format prompt as chat messages for the model."""
     return [
-        {"role": "system", "content": "You are a helpful assistant. Follow instructions precisely. Output only what is asked, nothing extra. Never ask questions back. This is not a chat."},
+        {"role": "system", "content": "/no_think\nYou are a text processing tool. Output ONLY the result. No explanations, no preamble, no commentary. Never wrap output in markdown or XML. Just the raw transformed text."},
         {"role": "user", "content": prompt},
     ]
 
 
-def generate(prompt: str) -> str:
+def generate(prompt: str, think=False) -> str:
     """
     Single LLM entry point for all skills.
     Takes a prompt (string), returns model response (string).
+    think=True enables reasoning mode for harder tasks (slower).
     """
     try:
         llm = _get_llm()
@@ -105,10 +106,14 @@ def generate(prompt: str) -> str:
 
         result = llm.create_chat_completion(
             messages=_messages(prompt),
-            max_tokens=512,
+            max_tokens=1024 if think else 512,
             temperature=TEMPERATURE,
         )
-        return result["choices"][0]["message"]["content"].strip()
+        raw = result["choices"][0]["message"]["content"].strip()
+        # Strip thinking tags if present
+        import re
+        raw = re.sub(r"<think>[\s\S]*?</think>", "", raw).strip()
+        return raw
     except Exception as e:
         return f"[Scryptian Error] {e}"
 
@@ -123,6 +128,7 @@ def generate_stream(prompt: str):
             yield "[Scryptian Error] Model download failed. Check your internet connection and try again."
             return
 
+        in_think = False
         for chunk in llm.create_chat_completion(
             messages=_messages(prompt),
             max_tokens=512,
@@ -131,7 +137,21 @@ def generate_stream(prompt: str):
         ):
             delta = chunk["choices"][0].get("delta", {})
             token = delta.get("content", "")
-            if token:
+            if not token:
+                continue
+            if "<think>" in token:
+                in_think = True
+                token = token.split("<think>")[0]
+                if token:
+                    yield token
+                continue
+            if "</think>" in token:
+                in_think = False
+                token = token.split("</think>")[-1]
+                if token:
+                    yield token
+                continue
+            if not in_think:
                 yield token
     except Exception as e:
         yield f"[Scryptian Error] {e}"
