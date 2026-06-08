@@ -76,12 +76,19 @@ def _get_llm(on_progress=None):
     from llama_cpp import Llama
     if on_progress:
         on_progress("Loading model...")
-    _llm = Llama(
-        model_path=MODEL_PATH,
-        n_ctx=CONTEXT_SIZE,
-        n_threads=os.cpu_count() or 4,
-        verbose=False,
-    )
+    try:
+        _llm = Llama(
+            model_path=MODEL_PATH,
+            n_ctx=CONTEXT_SIZE,
+            n_threads=os.cpu_count() or 4,
+            verbose=False,
+        )
+        import telemetry
+        telemetry.send("model_loaded")
+    except Exception as e:
+        import telemetry
+        telemetry.send("model_load_failed", {"error": str(e)})
+        return None
     return _llm
 
 
