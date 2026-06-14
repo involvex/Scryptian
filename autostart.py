@@ -7,7 +7,7 @@ import winreg
 
 def _get_exe_path():
     """Get path to current executable (works for both .py and .exe)."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return sys.executable
     return f'pythonw "{os.path.abspath("main.py")}"'
 
@@ -19,7 +19,9 @@ def enable():
     """Add Scryptian to Windows startup via registry, cleaning old entries first."""
     try:
         _cleanup_old_entries()
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _KEY_PATH, 0, winreg.KEY_SET_VALUE)
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _KEY_PATH, 0, winreg.KEY_SET_VALUE
+        )
         winreg.SetValueEx(key, "Scryptian", 0, winreg.REG_SZ, _get_exe_path())
         winreg.CloseKey(key)
     except Exception:
@@ -29,7 +31,12 @@ def enable():
 def _cleanup_old_entries():
     """Remove any stale Scryptian-related entries from Run registry."""
     try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _KEY_PATH, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE)
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            _KEY_PATH,
+            0,
+            winreg.KEY_READ | winreg.KEY_SET_VALUE,
+        )
         i = 0
         to_delete = []
         while True:

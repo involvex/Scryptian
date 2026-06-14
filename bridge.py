@@ -2,7 +2,14 @@
 # Connector | Optimizer | Unifier
 
 import os
-from config import MODEL_PATH, MODELS_DIR, MODEL_URL, MODEL_FILE, CONTEXT_SIZE, TEMPERATURE
+from config import (
+    MODEL_PATH,
+    MODELS_DIR,
+    MODEL_URL,
+    MODEL_FILE,
+    CONTEXT_SIZE,
+    TEMPERATURE,
+)
 
 _llm = None
 
@@ -17,6 +24,7 @@ def _download_model(on_progress=None):
     tmp_path = MODEL_PATH + ".part"
 
     import telemetry
+
     telemetry.send("model_download_started")
 
     if on_progress:
@@ -25,6 +33,7 @@ def _download_model(on_progress=None):
     try:
         try:
             import certifi
+
             ctx = ssl.create_default_context(cafile=certifi.where())
         except ImportError:
             ctx = ssl.create_default_context()
@@ -43,7 +52,9 @@ def _download_model(on_progress=None):
                         mb_done = downloaded // (1024 * 1024)
                         mb_total = total // (1024 * 1024)
                         if on_progress:
-                            on_progress(f"Downloading model... {pct}%  ({mb_done}/{mb_total} MB)")
+                            on_progress(
+                                f"Downloading model... {pct}%  ({mb_done}/{mb_total} MB)"
+                            )
         shutil.move(tmp_path, MODEL_PATH)
         telemetry.send("model_download_finished")
         if on_progress:
@@ -74,6 +85,7 @@ def _get_llm(on_progress=None):
             return None
 
     from llama_cpp import Llama
+
     if on_progress:
         on_progress("Loading model...")
     try:
@@ -84,9 +96,11 @@ def _get_llm(on_progress=None):
             verbose=False,
         )
         import telemetry
+
         telemetry.send("model_loaded")
     except Exception as e:
         import telemetry
+
         telemetry.send("model_load_failed", {"error": str(e)})
         return None
     return _llm
@@ -95,7 +109,10 @@ def _get_llm(on_progress=None):
 def _messages(prompt: str):
     """Format prompt as chat messages for the model."""
     return [
-        {"role": "system", "content": "You are a helpful assistant. Follow instructions precisely. Output only what is asked, nothing extra. Never ask questions back. This is not a chat."},
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Follow instructions precisely. Output only what is asked, nothing extra. Never ask questions back. This is not a chat.",
+        },
         {"role": "user", "content": prompt},
     ]
 
@@ -116,6 +133,7 @@ def generate(prompt: str) -> str:
             temperature=TEMPERATURE,
         )
         import re
+
         raw = result["choices"][0]["message"]["content"].strip()
         raw = re.sub(r"<think>[\s\S]*?</think>", "", raw).strip()
         return raw
@@ -156,6 +174,7 @@ def generate_stream(prompt: str):
                         in_think = False
                         think_done = True
                         import re
+
                         after = re.sub(r"<think>[\s\S]*?</think>", "", buf).strip()
                         buf = after
                         if after:

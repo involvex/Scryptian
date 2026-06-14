@@ -9,6 +9,7 @@ import threading
 from urllib import request
 
 from config import POSTHOG_KEY, POSTHOG_HOST, BASE_DIR
+
 ID_FILE = os.path.join(BASE_DIR, ".id")
 
 
@@ -29,20 +30,26 @@ def _os_info():
 
 def send(event: str, properties: dict = None):
     """Send event to PostHog in a background thread."""
+
     def _post():
         import time
-        body = json.dumps({
-            "api_key": POSTHOG_KEY,
-            "event": event,
-            "distinct_id": _get_id(),
-            "properties": {
-                "os": _os_info(),
-                **(properties or {}),
-            },
-        }).encode()
+
+        body = json.dumps(
+            {
+                "api_key": POSTHOG_KEY,
+                "event": event,
+                "distinct_id": _get_id(),
+                "properties": {
+                    "os": _os_info(),
+                    **(properties or {}),
+                },
+            }
+        ).encode()
         import ssl
+
         try:
             import certifi
+
             ctx = ssl.create_default_context(cafile=certifi.where())
         except ImportError:
             ctx = ssl.create_default_context()

@@ -33,6 +33,7 @@ if IS_WINDOWS:
 # ── Settings ──
 from config import HOTKEY, BASE_DIR
 import bootstrap
+
 SKILLS_DIR = os.path.join(BASE_DIR, "skills")
 
 
@@ -55,13 +56,15 @@ def scan_skills():
         module = _load_module(filename, filepath)
 
         if module and hasattr(module, "run"):
-            skills.append({
-                "title": meta.get("title", filename.replace(".py", "")),
-                "description": meta.get("description", ""),
-                "author": meta.get("author", ""),
-                "module": module,
-                "filename": filename,
-            })
+            skills.append(
+                {
+                    "title": meta.get("title", filename.replace(".py", "")),
+                    "description": meta.get("description", ""),
+                    "author": meta.get("author", ""),
+                    "module": module,
+                    "filename": filename,
+                }
+            )
     return skills
 
 
@@ -248,7 +251,9 @@ class ScryptianBar:
         self.window.lift()
 
         # Drop topmost after focus so other windows can be clicked
-        self.window.after(300, lambda: self.window and self.window.attributes("-topmost", False))
+        self.window.after(
+            300, lambda: self.window and self.window.attributes("-topmost", False)
+        )
 
         # Hide when clicking outside
         self.window.bind("<FocusOut>", self._on_focus_out)
@@ -334,10 +339,7 @@ class ScryptianBar:
         """Filters skills by input."""
         q = query.lower().strip()
         if q:
-            self.filtered = [
-                s for s in self.skills
-                if q in s["title"].lower()
-            ]
+            self.filtered = [s for s in self.skills if q in s["title"].lower()]
         else:
             self.filtered = list(self.skills)
 
@@ -384,8 +386,12 @@ class ScryptianBar:
         row.pack(fill="x", padx=4, pady=1)
 
         title_lbl = tk.Label(
-            row, text=f"  {title}", font=("Segoe UI", 13),
-            bg="#1e1e2e", fg="#cdd6f4", anchor="w",
+            row,
+            text=f"  {title}",
+            font=("Segoe UI", 13),
+            bg="#1e1e2e",
+            fg="#cdd6f4",
+            anchor="w",
         )
         title_lbl.pack(side="left")
 
@@ -476,8 +482,10 @@ class ScryptianBar:
             try:
                 # Ensure model is ready (download/load if needed)
                 if not bridge.is_model_ready():
+
                     def on_progress(msg):
                         self.root.after(0, lambda m=msg: self._show_result(m))
+
                     bridge._get_llm(on_progress=on_progress)
 
                 mod = skill["module"]
@@ -488,8 +496,11 @@ class ScryptianBar:
                     for chunk in bridge.generate_stream(p):
                         full_text += chunk
                         text_snapshot = full_text
-                        self.root.after(0, lambda t=text_snapshot: self._update_stream(t))
+                        self.root.after(
+                            0, lambda t=text_snapshot: self._update_stream(t)
+                        )
                     import re
+
                     stripped = re.sub(r"<think>[\s\S]*?</think>", "", full_text).strip()
                     self.processing = False
                     if stripped and not stripped.startswith("[Scryptian Error]"):
@@ -504,7 +515,12 @@ class ScryptianBar:
                     elif stripped.startswith("[Scryptian Error]"):
                         self.root.after(0, lambda t=stripped: self._show_result(t))
                     else:
-                        self.root.after(0, lambda: self._show_result("Skill returned an empty result."))
+                        self.root.after(
+                            0,
+                            lambda: self._show_result(
+                                "Skill returned an empty result."
+                            ),
+                        )
                 else:
                     # Fallback: non-streaming
                     result = mod.run(input_text)
@@ -521,7 +537,12 @@ class ScryptianBar:
                     elif result and result.startswith("[Scryptian Error]"):
                         self.root.after(0, lambda: self._show_result(result))
                     else:
-                        self.root.after(0, lambda: self._show_result("Skill returned an empty result."))
+                        self.root.after(
+                            0,
+                            lambda: self._show_result(
+                                "Skill returned an empty result."
+                            ),
+                        )
             except Exception as e:
                 err_msg = f"Error: {e}"
                 self.root.after(0, lambda msg=err_msg: self._show_result(msg))
@@ -607,20 +628,24 @@ class ScryptianBar:
         needed = self.container.winfo_reqheight()
         self._resize(needed + 4)
 
-
     def _send_report(self):
         """Send anonymous bug report with last result/error to PostHog."""
         import platform
-        telemetry.send("bug_report", {
-            "last_result": self.last_result[:500] if self.last_result else "",
-            "platform": platform.platform(),
-            "skills_count": len(self.skills),
-        })
+
+        telemetry.send(
+            "bug_report",
+            {
+                "last_result": self.last_result[:500] if self.last_result else "",
+                "platform": platform.platform(),
+                "skills_count": len(self.skills),
+            },
+        )
         self._show_result("Report sent. Thanks!")
 
     def _open_skills_folder(self):
         """Open skills folder in file manager (cross-platform)."""
         import subprocess
+
         if IS_WINDOWS:
             os.startfile(SKILLS_DIR)
         elif sys.platform == "darwin":
@@ -678,7 +703,9 @@ def _kill_other_instances():
         while True:
             name = pe2.szExeFile.decode("utf-8", errors="ignore").lower()
             if "scryptian" in name and pe2.th32ProcessID not in keep_pids:
-                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pe2.th32ProcessID)
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    PROCESS_TERMINATE, False, pe2.th32ProcessID
+                )
                 if handle:
                     ctypes.windll.kernel32.TerminateProcess(handle, 0)
                     ctypes.windll.kernel32.CloseHandle(handle)
@@ -715,10 +742,13 @@ def main():
 
     # Check model file
     from config import MODEL_PATH, MODEL_FILE
+
     if os.path.exists(MODEL_PATH):
         print(f"[Scryptian] Model: {MODEL_FILE}")
     else:
-        print(f"[Scryptian] WARNING: Model not found. It will download on first skill use.")
+        print(
+            f"[Scryptian] WARNING: Model not found. It will download on first skill use."
+        )
 
     print(f"[Scryptian] Hotkey: {HOTKEY}")
     print("[Scryptian] Waiting...")
@@ -753,6 +783,7 @@ def main():
     root.after(500, bar.toggle)
 
     import signal
+
     signal.signal(signal.SIGINT, lambda *_: root.quit())
 
     try:

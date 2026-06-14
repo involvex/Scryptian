@@ -10,6 +10,7 @@ import ssl
 def _ssl_ctx():
     try:
         import certifi
+
         return ssl.create_default_context(cafile=certifi.where())
     except Exception:
         return ssl.create_default_context()
@@ -21,7 +22,9 @@ def run(text):
     """
     try:
         url = "https://translate.googleapis.com/translate_a/single"
-        params = parse.urlencode({"client": "gtx", "sl": "auto", "tl": "en", "dt": "t", "q": text})
+        params = parse.urlencode(
+            {"client": "gtx", "sl": "auto", "tl": "en", "dt": "t", "q": text}
+        )
         resp = request.urlopen(f"{url}?{params}", timeout=10, context=_ssl_ctx())
         data = json.loads(resp.read())
         return "".join(part[0] for part in data[0] if part[0])
