@@ -9,69 +9,22 @@ import json
 import threading
 import bridge
 
-# -- Catppuccin Mocha Color Palette --
-C = {
-    "crust": "#11111b",
-    "mantle": "#181825",
-    "base": "#1e1e2e",
-    "surface0": "#313244",
-    "surface1": "#45475a",
-    "surface2": "#585b70",
-    "overlay0": "#6c7086",
-    "overlay1": "#7f849c",
-    "overlay2": "#9399b2",
-    "subtext0": "#a6adc8",
-    "subtext1": "#bac2de",
-    "text": "#cdd6f4",
-    "lavender": "#b4befe",
-    "blue": "#89b4fa",
-    "sapphire": "#74c7ec",
-    "sky": "#89dceb",
-    "teal": "#94e2d5",
-    "green": "#a6e3a1",
-    "yellow": "#f9e2af",
-    "peach": "#fab387",
-    "maroon": "#eba0ac",
-    "red": "#f38ba8",
-    "mauve": "#cba6f7",
-    "pink": "#f5c2e7",
-    "flamingo": "#f2cdcd",
-    "rosewater": "#f5e0dc",
-}
+from themes import get_theme, get_syntax_colors, THEMES, AVAILABLE_THEMES
 
-# -- Syntax highlighting colors --
-SYNTAX_COLORS = {
-    "Keyword": C["mauve"],
-    "Keyword.Namespace": C["mauve"],
-    "Keyword.Type": C["yellow"],
-    "Keyword.Constant": C["peach"],
-    "Name.Function": C["blue"],
-    "Name.Class": C["yellow"],
-    "Name.Decorator": C["pink"],
-    "Name.Builtin": C["red"],
-    "Name.Builtin.Pseudo": C["red"],
-    "String": C["green"],
-    "String.Affix": C["green"],
-    "String.Escape": C["peach"],
-    "Number": C["peach"],
-    "Number.Float": C["peach"],
-    "Comment": C["overlay0"],
-    "Comment.Multiline": C["overlay0"],
-    "Comment.Single": C["overlay0"],
-    "Operator": C["sky"],
-    "Operator.Word": C["mauve"],
-    "Punctuation": C["subtext1"],
-    "Name.Variable": C["text"],
-    "Name.Tag": C["red"],
-    "Name.Attribute": C["yellow"],
-    "Literal": C["teal"],
-    "Literal.Date": C["teal"],
-    "Generic.Heading": C["blue"],
-    "Generic.Subheading": C["blue"],
-    "Generic.Deleted": C["red"],
-    "Generic.Inserted": C["green"],
-    "Generic.Error": C["red"],
-}
+# -- Active color palette (updated by load_theme) --
+C = {}
+_SYNTAX = {}
+
+
+def load_theme(theme_name):
+    """Load a theme by name, updating the global C and _SYNTAX dicts."""
+    theme = get_theme(theme_name)
+    C.clear()
+    C.update(theme)
+    _SYNTAX.clear()
+    _SYNTAX.update(get_syntax_colors(theme))
+    return theme
+
 
 # -- File extension to language mapping --
 EXTENSION_MAP = {
@@ -121,12 +74,14 @@ MAX_HIGHLIGHT_SIZE = 500 * 1024
 
 
 class LineNumbers(tk.Canvas):
-    def __init__(self, parent, text_widget, **kwargs):
+    def __init__(
+        self, parent, text_widget, font_name="Consolas", font_size=12, **kwargs
+    ):
         super().__init__(
             parent, bg=C["mantle"], highlightthickness=0, width=50, **kwargs
         )
         self.text_widget = text_widget
-        self._font = font.Font(family="Consolas", size=12)
+        self._font = font.Font(family=font_name, size=font_size)
         self._line_height = self._font.metrics("linespace")
         self._current_line = 1
 
@@ -182,7 +137,7 @@ class SyntaxHighlighter:
         self._setup_tags()
 
     def _setup_tags(self):
-        for token_name, color in SYNTAX_COLORS.items():
+        for token_name, color in _SYNTAX.items():
             tag = f"syn_{token_name}"
             self.text_widget.tag_configure(tag, foreground=color)
 
@@ -237,10 +192,11 @@ class SyntaxHighlighter:
 
 
 class EditorTab:
-    def __init__(self, parent, filename=None, content=""):
+    def __init__(self, parent, filename=None, content="", settings=None):
         self.filename = filename
         self.modified = False
         self.language = "Text"
+        self.settings = settings
 
         self.frame = tk.Frame(parent, bg=C["base"])
 
@@ -251,15 +207,23 @@ class EditorTab:
         self._build_ui(content)
 
     def _build_ui(self, content):
+        font_family = "Consolas"
+        font_size = 12
+        if self.settings:
+            font_family = self.settings.get("editor_font_family", "Consolas")
+            font_size = self.settings.get("editor_font_size", 12)
+
         container = tk.Frame(self.frame, bg=C["base"])
         container.pack(fill="both", expand=True)
 
-        self.line_numbers = LineNumbers(container, None)
+        self.line_numbers = LineNumbers(
+            container, None, font_name=font_family, font_size=font_size
+        )
         self.line_numbers.pack(side="left", fill="y")
 
         self.text = tk.Text(
             container,
-            font=("Consolas", 12),
+            font=(font_family, font_size),
             bg=C["base"],
             fg=C["text"],
             insertbackground=C["rosewater"],
@@ -594,14 +558,21 @@ class FindReplaceDialog:
 
 
 class SkillPalette:
-    def __init__(self, parent, skills, apply_callback):
+    def __init__(self, parent, skills, apply_callback, settings=None):
         self.parent = parent
         self.skills = skills
         self.apply_callback = apply_callback
+        self.settings = settings
         self.window = None
-        self.filtered = list(skills)
+        self.filtered = self._enabled_skills(skills)
         self.selected_index = 0
         self.skill_buttons = []
+
+    def _enabled_skills(self, skills):
+        if not self.settings:
+            return list(skills)
+        disabled = self.settings.get("disabled_skills", [])
+        return [s for s in skills if s["filename"] not in disabled]
 
     def show(self):
         if self.window:
@@ -647,15 +618,16 @@ class SkillPalette:
 
     def _on_search(self, _event=None):
         query = self.search.get().lower().strip()
+        enabled = self._enabled_skills(self.skills)
         if query:
             self.filtered = [
                 s
-                for s in self.skills
+                for s in enabled
                 if query in s["title"].lower()
                 or query in s.get("description", "").lower()
             ]
         else:
-            self.filtered = list(self.skills)
+            self.filtered = enabled
         self.selected_index = 0
         self._render_list()
 
@@ -727,10 +699,468 @@ class SkillPalette:
             self.window = None
 
 
+class SettingsDialog:
+    def __init__(self, parent, settings, editor):
+        self.parent = parent
+        self.settings = settings
+        self.editor = editor
+        self.window = None
+        self._build()
+
+    def _build(self):
+        self.window = tk.Toplevel(self.parent)
+        self.window.title("Settings")
+        self.window.configure(bg=C["base"])
+        self.window.geometry("620x500")
+        self.window.resizable(False, False)
+        self.window.transient(self.parent)
+        self.window.grab_set()
+
+        sw = self.parent.winfo_screenwidth()
+        sh = self.parent.winfo_screenheight()
+        px = (sw - 620) // 2
+        py = (sh - 500) // 2
+        self.window.geometry(f"620x500+{px}+{py}")
+
+        # Sidebar
+        sidebar = tk.Frame(self.window, bg=C["surface0"], width=160)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        self._sections = {}
+        self._current_section = None
+        self._nav_buttons = []
+
+        sections = [
+            ("skills", "Skills"),
+            ("editor", "Editor"),
+            ("theme", "Theme"),
+            ("general", "General"),
+        ]
+
+        for key, label in sections:
+            btn = tk.Label(
+                sidebar,
+                text=f"  {label}",
+                font=("Segoe UI", 11),
+                bg=C["surface0"],
+                fg=C["text"],
+                anchor="w",
+                padx=12,
+                pady=8,
+                cursor="hand2",
+            )
+            btn.pack(fill="x")
+            btn.bind("<Button-1>", lambda e, k=key: self._show_section(k))
+            self._nav_buttons.append((key, btn))
+
+        # Content area
+        self.content = tk.Frame(self.window, bg=C["base"])
+        self.content.pack(side="left", fill="both", expand=True, padx=0)
+
+        self._build_skills_section()
+        self._build_editor_section()
+        self._build_theme_section()
+        self._build_general_section()
+
+        # Bottom buttons
+        bottom = tk.Frame(self.window, bg=C["surface0"], height=48)
+        bottom.pack(side="bottom", fill="x")
+        bottom.pack_propagate(False)
+
+        cancel_btn = tk.Button(
+            bottom,
+            text="Cancel",
+            font=("Segoe UI", 10),
+            bg=C["surface1"],
+            fg=C["text"],
+            relief="flat",
+            padx=16,
+            pady=4,
+            command=self._cancel,
+        )
+        cancel_btn.pack(side="right", padx=(0, 12), pady=10)
+
+        save_btn = tk.Button(
+            bottom,
+            text="Save",
+            font=("Segoe UI", 10),
+            bg=C["blue"],
+            fg=C["base"],
+            relief="flat",
+            padx=16,
+            pady=4,
+            command=self._save,
+        )
+        save_btn.pack(side="right", padx=(0, 8), pady=10)
+
+        self._show_section("skills")
+
+    def _show_section(self, key):
+        if self._current_section:
+            self._sections[self._current_section].pack_forget()
+
+        for nav_key, btn in self._nav_buttons:
+            if nav_key == key:
+                btn.config(bg=C["surface1"], fg=C["text"])
+            else:
+                btn.config(bg=C["surface0"], fg=C["subtext0"])
+
+        self._sections[key].pack(fill="both", expand=True, padx=16, pady=16)
+        self._current_section = key
+
+    # -- Skills section --
+
+    def _build_skills_section(self):
+        frame = tk.Frame(self.content, bg=C["base"])
+
+        header = tk.Label(
+            frame,
+            text="Manage Skills",
+            font=("Segoe UI", 13, "bold"),
+            bg=C["base"],
+            fg=C["text"],
+            anchor="w",
+        )
+        header.pack(fill="x", pady=(0, 4))
+
+        desc = tk.Label(
+            frame,
+            text="Enable or disable skills that appear in the skill palette (Ctrl+K).",
+            font=("Segoe UI", 9),
+            bg=C["base"],
+            fg=C["subtext0"],
+            anchor="w",
+        )
+        desc.pack(fill="x", pady=(0, 12))
+
+        # Scrollable list
+        list_canvas = tk.Canvas(frame, bg=C["base"], highlightthickness=0)
+        scrollbar = tk.Scrollbar(frame, orient="vertical", command=list_canvas.yview)
+        self._skills_frame = tk.Frame(list_canvas, bg=C["base"])
+
+        self._skills_frame.bind(
+            "<Configure>",
+            lambda e: list_canvas.configure(scrollregion=list_canvas.bbox("all")),
+        )
+        list_canvas.create_window((0, 0), window=self._skills_frame, anchor="nw")
+        list_canvas.configure(yscrollcommand=scrollbar.set)
+
+        list_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        disabled = self.settings.get("disabled_skills", [])
+        self._skill_vars = {}
+
+        skills = self.editor.skills if self.editor.skills else []
+        for skill in skills:
+            var = tk.BooleanVar(value=skill["filename"] not in disabled)
+            self._skill_vars[skill["filename"]] = var
+
+            row = tk.Frame(self._skills_frame, bg=C["base"])
+            row.pack(fill="x", pady=1)
+
+            cb = tk.Checkbutton(
+                row,
+                variable=var,
+                bg=C["base"],
+                fg=C["text"],
+                selectcolor=C["surface0"],
+                activebackground=C["base"],
+                activeforeground=C["text"],
+            )
+            cb.pack(side="left")
+
+            info = tk.Frame(row, bg=C["base"])
+            info.pack(side="left", fill="x", expand=True)
+
+            title_lbl = tk.Label(
+                info,
+                text=skill["title"],
+                font=("Segoe UI", 10),
+                bg=C["base"],
+                fg=C["text"],
+                anchor="w",
+            )
+            title_lbl.pack(fill="x")
+
+            if skill.get("description"):
+                desc_lbl = tk.Label(
+                    info,
+                    text=skill["description"][:80],
+                    font=("Segoe UI", 8),
+                    bg=C["base"],
+                    fg=C["overlay0"],
+                    anchor="w",
+                )
+                desc_lbl.pack(fill="x")
+
+        self._sections["skills"] = frame
+
+    # -- Editor section --
+
+    def _build_editor_section(self):
+        frame = tk.Frame(self.content, bg=C["base"])
+
+        header = tk.Label(
+            frame,
+            text="Editor",
+            font=("Segoe UI", 13, "bold"),
+            bg=C["base"],
+            fg=C["text"],
+            anchor="w",
+        )
+        header.pack(fill="x", pady=(0, 16))
+
+        # Font family
+        font_frame = tk.Frame(frame, bg=C["base"])
+        font_frame.pack(fill="x", pady=(0, 12))
+
+        tk.Label(
+            font_frame,
+            text="Font Family",
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["subtext0"],
+            anchor="w",
+        ).pack(fill="x")
+
+        self._font_var = tk.StringVar(
+            value=self.settings.get("editor_font_family", "Consolas")
+        )
+        families = [
+            "Consolas",
+            "Courier New",
+            "Cascadia Code",
+            "Fira Code",
+            "JetBrains Mono",
+            "Lucida Console",
+        ]
+        font_menu = tk.OptionMenu(font_frame, self._font_var, *families)
+        font_menu.config(
+            font=("Segoe UI", 10),
+            bg=C["surface0"],
+            fg=C["text"],
+            activebackground=C["surface1"],
+            activeforeground=C["text"],
+            highlightthickness=0,
+            relief="flat",
+        )
+        font_menu["menu"].config(bg=C["surface0"], fg=C["text"])
+        font_menu.pack(fill="x")
+
+        # Font size
+        size_frame = tk.Frame(frame, bg=C["base"])
+        size_frame.pack(fill="x", pady=(0, 12))
+
+        tk.Label(
+            size_frame,
+            text="Font Size",
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["subtext0"],
+            anchor="w",
+        ).pack(fill="x")
+
+        self._size_var = tk.IntVar(value=self.settings.get("editor_font_size", 12))
+        size_spin = tk.Spinbox(
+            size_frame,
+            from_=8,
+            to=36,
+            textvariable=self._size_var,
+            font=("Segoe UI", 10),
+            bg=C["surface0"],
+            fg=C["text"],
+            buttonbackground=C["surface1"],
+            relief="flat",
+            width=6,
+        )
+        size_spin.pack(anchor="w")
+
+        # Word wrap
+        wrap_frame = tk.Frame(frame, bg=C["base"])
+        wrap_frame.pack(fill="x", pady=(0, 12))
+
+        self._wrap_var = tk.BooleanVar(value=self.settings.get("word_wrap", False))
+        tk.Checkbutton(
+            wrap_frame,
+            text="Word Wrap",
+            variable=self._wrap_var,
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["text"],
+            selectcolor=C["surface0"],
+            activebackground=C["base"],
+            activeforeground=C["text"],
+        ).pack(anchor="w")
+
+        self._sections["editor"] = frame
+
+    # -- Theme section --
+
+    def _build_theme_section(self):
+        frame = tk.Frame(self.content, bg=C["base"])
+
+        header = tk.Label(
+            frame,
+            text="Theme",
+            font=("Segoe UI", 13, "bold"),
+            bg=C["base"],
+            fg=C["text"],
+            anchor="w",
+        )
+        header.pack(fill="x", pady=(0, 16))
+
+        self._theme_var = tk.StringVar(value=self.settings.get("theme", "mocha"))
+
+        for key, display_name in AVAILABLE_THEMES:
+            theme = get_theme(key)
+            row = tk.Frame(frame, bg=C["base"])
+            row.pack(fill="x", pady=2)
+
+            rb = tk.Radiobutton(
+                row,
+                variable=self._theme_var,
+                value=key,
+                bg=C["base"],
+                fg=C["text"],
+                selectcolor=C["surface0"],
+                activebackground=C["base"],
+                activeforeground=C["text"],
+            )
+            rb.pack(side="left")
+
+            # Color swatches
+            swatch_frame = tk.Frame(row, bg=C["base"])
+            swatch_frame.pack(side="left", padx=(0, 8))
+
+            for color_key in ["base", "surface0", "text", "blue", "green", "red"]:
+                swatch = tk.Frame(
+                    swatch_frame,
+                    bg=theme[color_key],
+                    width=16,
+                    height=16,
+                    relief="solid",
+                    bd=1,
+                )
+                swatch.pack(side="left", padx=1)
+                swatch.pack_propagate(False)
+
+            tk.Label(
+                row,
+                text=display_name,
+                font=("Segoe UI", 10),
+                bg=C["base"],
+                fg=C["text"],
+            ).pack(side="left", padx=4)
+
+        self._sections["theme"] = frame
+
+    # -- General section --
+
+    def _build_general_section(self):
+        frame = tk.Frame(self.content, bg=C["base"])
+
+        header = tk.Label(
+            frame,
+            text="General",
+            font=("Segoe UI", 13, "bold"),
+            bg=C["base"],
+            fg=C["text"],
+            anchor="w",
+        )
+        header.pack(fill="x", pady=(0, 16))
+
+        # Hotkey info
+        hk_frame = tk.Frame(frame, bg=C["base"])
+        hk_frame.pack(fill="x", pady=(0, 12))
+
+        tk.Label(
+            hk_frame,
+            text="Global Hotkey",
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["subtext0"],
+            anchor="w",
+        ).pack(fill="x")
+
+        tk.Label(
+            hk_frame,
+            text="Ctrl+Alt  (set in config.py)",
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["text"],
+            anchor="w",
+        ).pack(fill="x")
+
+        # Autostart
+        self._autostart_var = tk.BooleanVar(value=self.settings.get("autostart", True))
+        tk.Checkbutton(
+            frame,
+            text="Start with Windows",
+            variable=self._autostart_var,
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["text"],
+            selectcolor=C["surface0"],
+            activebackground=C["base"],
+            activeforeground=C["text"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        # Telemetry
+        self._telemetry_var = tk.BooleanVar(value=self.settings.get("telemetry", True))
+        tk.Checkbutton(
+            frame,
+            text="Anonymous usage telemetry",
+            variable=self._telemetry_var,
+            font=("Segoe UI", 10),
+            bg=C["base"],
+            fg=C["text"],
+            selectcolor=C["surface0"],
+            activebackground=C["base"],
+            activeforeground=C["text"],
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            frame,
+            text="Helps improve Scryptian. No personal data is collected.",
+            font=("Segoe UI", 8),
+            bg=C["base"],
+            fg=C["overlay0"],
+            anchor="w",
+        ).pack(anchor="w", padx=(20, 0))
+
+        self._sections["general"] = frame
+
+    # -- Actions --
+
+    def _save(self):
+        disabled = [fn for fn, var in self._skill_vars.items() if not var.get()]
+        self.settings.set_many(
+            {
+                "disabled_skills": disabled,
+                "editor_font_family": self._font_var.get(),
+                "editor_font_size": self._size_var.get(),
+                "word_wrap": self._wrap_var.get(),
+                "theme": self._theme_var.get(),
+                "autostart": self._autostart_var.get(),
+                "telemetry": self._telemetry_var.get(),
+            }
+        )
+        load_theme(self.settings.get("theme", "mocha"))
+        if self.editor.skill_palette:
+            self.editor.skills = self.editor._scan_skills()
+        self.window.destroy()
+
+    def _cancel(self):
+        self.window.destroy()
+
+
 class ScryptianEditor:
-    def __init__(self, root, skills):
+    def __init__(self, root, skills, settings=None):
         self.root = root
         self.skills = skills
+        self.settings = settings
         self.tabs = []
         self.active_tab = None
         self.window = None
@@ -741,6 +1171,8 @@ class ScryptianEditor:
             os.path.dirname(os.path.abspath(__file__)), ".editor_state.json"
         )
         self._load_state()
+        if self.settings:
+            load_theme(self.settings.get("theme", "mocha"))
 
     def _load_state(self):
         self._state = {"geometry": "1000x700", "recent_files": []}
@@ -777,6 +1209,9 @@ class ScryptianEditor:
             self.window.lift()
             return
 
+        if self.settings:
+            load_theme(self.settings.get("theme", "mocha"))
+
         self.skills = self._scan_skills()
 
         self.window = tk.Toplevel(self.root)
@@ -795,7 +1230,9 @@ class ScryptianEditor:
         self._create_status_bar()
 
         self.find_dialog = FindReplaceDialog(self.window, self._get_active_tab)
-        self.skill_palette = SkillPalette(self.window, self.skills, self._apply_skill)
+        self.skill_palette = SkillPalette(
+            self.window, self.skills, self._apply_skill, settings=self.settings
+        )
 
         self.window.bind("<Control-n>", lambda e: self._new_file())
         self.window.bind("<Control-o>", lambda e: self._open_file())
@@ -916,6 +1353,10 @@ class ScryptianEditor:
         )
         menubar.add_cascade(label="Skills", menu=skills_menu)
 
+        settings_menu = tk.Menu(menubar, tearoff=0, bg=C["surface0"], fg=C["text"])
+        settings_menu.add_command(label="Preferences...", command=self._show_settings)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+
         help_menu = tk.Menu(menubar, tearoff=0, bg=C["surface0"], fg=C["text"])
         help_menu.add_command(label="About", command=self._show_about)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -930,6 +1371,11 @@ class ScryptianEditor:
             "Scryptian - AI Text Editor\nLocal LLM powered text transformation.\n\nCtrl+Alt to toggle editor.\nCtrl+K to run skills.",
             parent=self.window,
         )
+
+    def _show_settings(self):
+        if not self.settings:
+            return
+        SettingsDialog(self.window, self.settings, self)
 
     # -- Tab bar --
 
@@ -1114,7 +1560,12 @@ class ScryptianEditor:
     # -- File operations --
 
     def _new_file(self, content="", filename=None):
-        tab = EditorTab(self.content_frame, filename=filename, content=content)
+        tab = EditorTab(
+            self.content_frame,
+            filename=filename,
+            content=content,
+            settings=self.settings,
+        )
         self.tabs.append(tab)
         if self.active_tab:
             self.active_tab.hide()
@@ -1362,7 +1813,7 @@ class ScryptianEditor:
         self.skills = skills
         if self.skill_palette:
             self.skill_palette.skills = skills
-            self.skill_palette.filtered = list(skills)
+            self.skill_palette.filtered = self.skill_palette._enabled_skills(skills)
         return skills
 
     def _parse_metadata(self, filepath):

@@ -11,8 +11,9 @@ import keyboard
 import telemetry
 import tray
 import autostart
-from config import HOTKEY, BASE_DIR, MODEL_PATH, MODEL_FILE
+from config import HOTKEY, BASE_DIR, MODEL_PATH, MODEL_FILE, SETTINGS_FILE
 import bootstrap
+from settings import Settings
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -99,12 +100,12 @@ def _load_module(name, filepath):
 class ScryptianBar:
     """Wrapper that delegates to ScryptianEditor."""
 
-    def __init__(self, root, skills):
+    def __init__(self, root, skills, settings=None):
         from editor import ScryptianEditor
 
         self.root = root
         self.skills = skills
-        self.editor = ScryptianEditor(root, skills)
+        self.editor = ScryptianEditor(root, skills, settings=settings)
 
     def toggle(self):
         self.editor.toggle()
@@ -213,7 +214,8 @@ def main():
     root = tk.Tk()
     root.withdraw()
 
-    bar = ScryptianBar(root, skills)
+    settings = Settings(SETTINGS_FILE)
+    bar = ScryptianBar(root, skills, settings=settings)
 
     keyboard.add_hotkey(HOTKEY, bar.toggle)
 
@@ -231,7 +233,10 @@ def main():
     autostart.enable()
     print("[Scryptian] Autostart updated.")
 
-    tray.start(on_quit=root.quit, on_open=bar.toggle)
+    def open_settings():
+        root.after(0, lambda: bar.editor._show_settings())
+
+    tray.start(on_quit=root.quit, on_open=bar.toggle, on_settings=open_settings)
 
     # Show editor on first launch so user knows it's working
     root.after(500, bar.toggle)

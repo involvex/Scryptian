@@ -33,3 +33,6 @@ POSTHOG_HOST = "https://us.i.posthog.com"
 EDITOR_STATE_FILE = ".editor_state.json"
 MAX_RECENT_FILES = 10
 MAX_HIGHLIGHT_SIZE = 500 * 1024  # 500 KB
+
+# ── Settings ──
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")

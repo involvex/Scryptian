@@ -24,22 +24,28 @@ def _load_icon():
     return Image.open(ICON_PATH)
 
 
-def start(on_quit, on_open=None):
+def start(on_quit, on_open=None, on_settings=None):
     """Start tray icon in background thread. on_quit() called when user clicks Quit."""
 
     def _run():
+        menu_items = [
+            pystray.MenuItem(
+                "Open", lambda: on_open() if on_open else None, default=True
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "Settings",
+                lambda: on_settings() if on_settings else None,
+            ),
+            pystray.MenuItem("Feedback", lambda: webbrowser.open(FEEDBACK_URL)),
+            pystray.MenuItem("Quit", lambda: _quit(icon)),
+        ]
+
         icon = pystray.Icon(
             name="Scryptian",
             icon=_load_icon(),
             title="Scryptian - Ctrl+Alt",
-            menu=pystray.Menu(
-                pystray.MenuItem(
-                    "Open", lambda: on_open() if on_open else None, default=True
-                ),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Feedback", lambda: webbrowser.open(FEEDBACK_URL)),
-                pystray.MenuItem("Quit", lambda: _quit(icon)),
-            ),
+            menu=pystray.Menu(*menu_items),
         )
 
         def _quit(icon):
