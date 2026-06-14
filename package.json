@@ -1,0 +1,18 @@
+{
+    "name": "scryptian",
+    "version": "0.3.4",
+    "description": "A Python-based scripting language for automation and task management.",
+    "main": "main.py",
+    "bin": {
+        "scryptian": "bin.ps1"
+    },
+    "scripts": {
+        "start": "python main.py",
+        "format": "black .",
+        "lint": "pylint .",
+        "build": "pyinstaller --onefile main.py --name scryptian",
+        "installer": "makensis installer.nsi"
+    },
+    "author": "involvex",
+    "license": "MIT"
+}

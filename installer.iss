@@ -1,7 +1,7 @@
 #define MyAppName "Scryptian"
 #define MyAppVersion "0.3.4"
-#define MyAppPublisher "adrianium"
-#define MyAppURL "https://github.com/adrianium/Scryptian"
+#define MyAppPublisher "involvex"
+#define MyAppURL "https://github.com/involvex/Scryptian"
 #define MyAppExeName "Scryptian.exe"
 #define MyAppIcon "icon.ico"
 
