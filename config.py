@@ -28,3 +28,8 @@ TEMPERATURE = 0
 # ── Telemetry (PostHog) ──
 POSTHOG_KEY = "phc_nyYF49YRbnnsjJbMqFwZbXxpiPfU249NAnmnZHuPavei"
 POSTHOG_HOST = "https://us.i.posthog.com"
+
+# ── Editor ──
+EDITOR_STATE_FILE = ".editor_state.json"
+MAX_RECENT_FILES = 10
+MAX_HIGHLIGHT_SIZE = 500 * 1024  # 500 KB

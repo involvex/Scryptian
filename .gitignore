@@ -21,3 +21,5 @@ models/
 node_modules/
 *.spec
 *.spec.warn
+build.spec
+.editor_state.json

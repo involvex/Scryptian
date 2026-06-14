@@ -1,18 +1,18 @@
-# main.py — Scryptian Core
-# Skill scanner | Hotkey | UI bar
+# main.py - Scryptian Core
+# Skill scanner | Hotkey | Editor UI
 
 import os
 import sys
 import re
+import signal
 import importlib.util
-import threading
 import tkinter as tk
-import pyperclip
 import keyboard
-import bridge
 import telemetry
 import tray
 import autostart
+from config import HOTKEY, BASE_DIR, MODEL_PATH, MODEL_FILE
+import bootstrap
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -20,7 +20,7 @@ if IS_WINDOWS:
     import ctypes
 
 
-# ── DPI (crisp rendering on Windows) ──
+# -- DPI (crisp rendering on Windows) --
 if IS_WINDOWS:
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -29,10 +29,6 @@ if IS_WINDOWS:
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
-
-# ── Settings ──
-from config import HOTKEY, BASE_DIR
-import bootstrap
 
 SKILLS_DIR = os.path.join(BASE_DIR, "skills")
 
@@ -100,558 +96,18 @@ def _load_module(name, filepath):
         return None
 
 
-# ── UI ──
 class ScryptianBar:
+    """Wrapper that delegates to ScryptianEditor."""
+
     def __init__(self, root, skills):
+        from editor import ScryptianEditor
+
         self.root = root
         self.skills = skills
-        self.filtered = list(skills)
-        self.selected_index = 0
-        self.window = None
-        self.visible = False
-        self.has_result = False
-        self.last_result = ""
-        self.processing = False
-        self.pending_result = None
-        self._has_add_item = False
+        self.editor = ScryptianEditor(root, skills)
 
     def toggle(self):
-        """Show/hide the bar (called from any thread)."""
-        telemetry.send("hotkey_pressed")
-        self.root.after(0, self._do_toggle)
-
-    def _do_toggle(self):
-        """Toggle visibility (runs on tkinter main thread)."""
-        if self.visible:
-            self._hide()
-        else:
-            self._show()
-
-    def _show(self):
-        if self.window and self.visible:
-            return
-
-        # Hot-reload skills on every open
-        self.skills = scan_skills()
-        self.filtered = list(self.skills)
-
-        self.window = tk.Toplevel(self.root)
-        self.window.title("Scryptian")
-        self.window.overrideredirect(True)
-        self.window.configure(bg="#313244")
-
-        # ── Size and center position ──
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        bar_width = max(560, int(screen_w * 0.4))
-        bar_height = 52
-        x = (screen_w - bar_width) // 2
-        y = int(screen_h * 0.3)
-        self._bar_width = bar_width
-
-        self.window.geometry(f"{bar_width}x{bar_height}+{x}+{y}")
-        self.window.update_idletasks()
-
-        # ── Border ──
-        self.border = tk.Frame(self.window, bg="#45475a", padx=1, pady=1)
-        self.border.pack(fill="both", expand=True)
-
-        # ── Container ──
-        self.container = tk.Frame(self.border, bg="#1e1e2e")
-        self.container.pack(fill="both", expand=True)
-
-        # ── Input field ──
-        self.entry = tk.Entry(
-            self.container,
-            font=("Segoe UI", 16),
-            bg="#1e1e2e",
-            fg="#cdd6f4",
-            disabledbackground="#1e1e2e",
-            disabledforeground="#585b70",
-            insertbackground="#cdd6f4",
-            relief="flat",
-            borderwidth=0,
-        )
-        self.entry.pack(fill="x", padx=12, pady=8)
-
-        self.placeholder = tk.Label(
-            self.container,
-            text="Works with text from clipboard",
-            font=("Segoe UI", 16),
-            bg="#1e1e2e",
-            fg="#585b70",
-        )
-        self.placeholder.place(x=14, y=8)
-
-        self.placeholder.bind("<Button-1>", lambda e: self.entry.focus_set())
-
-        self.entry.bind("<KeyRelease>", self._on_key)
-        self.entry.bind("<Escape>", lambda e: self._hide())
-        self.entry.bind("<Down>", self._select_next)
-        self.entry.bind("<Up>", self._select_prev)
-
-        self.window.bind("<Return>", self._on_enter)
-        self.window.bind("<Escape>", lambda e: self._hide())
-
-        # ── Result list (hidden until input) ──
-        self.list_frame = tk.Frame(self.container, bg="#1e1e2e")
-        self._skill_rows = []
-
-        # ── Response area (hidden until result) ──
-        self.separator = tk.Frame(self.container, bg="#45475a", height=1)
-        self.result_box = tk.Text(
-            self.container,
-            font=("Consolas", 13),
-            bg="#1e1e2e",
-            fg="#a6adc8",
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            wrap="word",
-            state="disabled",
-        )
-        self.skill_hint = tk.Frame(self.container, bg="#1e1e2e")
-        tk.Label(
-            self.skill_hint,
-            text="Ctrl+Alt - hide",
-            font=("Segoe UI", 10),
-            bg="#1e1e2e",
-            fg="#585b70",
-        ).pack(side="left")
-        tk.Label(
-            self.skill_hint,
-            text="Enter - run skill",
-            font=("Segoe UI", 10),
-            bg="#1e1e2e",
-            fg="#585b70",
-        ).pack(side="right")
-        self.hint_label = tk.Frame(self.container, bg="#1e1e2e")
-        tk.Label(
-            self.hint_label,
-            text="Enter - copy to clipboard and close",
-            font=("Segoe UI", 10),
-            bg="#1e1e2e",
-            fg="#585b70",
-        ).pack(side="left")
-        report_btn = tk.Label(
-            self.hint_label,
-            text="[ Report ]",
-            font=("Segoe UI", 10),
-            bg="#1e1e2e",
-            fg="#6c7086",
-            cursor="hand2",
-        )
-        report_btn.pack(side="right")
-        report_btn.bind("<Button-1>", lambda e: self._send_report())
-        report_btn.bind("<Enter>", lambda e: report_btn.config(fg="#cdd6f4"))
-        report_btn.bind("<Leave>", lambda e: report_btn.config(fg="#6c7086"))
-
-        self.window.attributes("-topmost", True)
-        self.window.update_idletasks()
-        self.window.lift()
-
-        # Drop topmost after focus so other windows can be clicked
-        self.window.after(
-            300, lambda: self.window and self.window.attributes("-topmost", False)
-        )
-
-        # Hide when clicking outside
-        self.window.bind("<FocusOut>", self._on_focus_out)
-
-        self.visible = True
-        self.selected_index = 0
-
-        # If there's a pending result from a background task, show it
-        if self.pending_result is not None:
-            self.has_result = True
-            self.last_result = self.pending_result
-            self.pending_result = None
-            self.processing = False
-            self.list_frame.pack_forget()
-            self.entry.config(state="disabled")
-            self._show_result(self.last_result)
-        else:
-            self.has_result = False
-            self.last_result = ""
-            self._update_filter("")
-
-        self.window.after(50, self._force_focus)
-
-    def _force_focus(self, attempt=0):
-        """Force focus via Windows API."""
-        if not self.window:
-            return
-
-        if IS_WINDOWS:
-            try:
-                hwnd = int(self.window.wm_frame(), 16)
-                fg = ctypes.windll.user32.GetForegroundWindow()
-                tid_fg = ctypes.windll.user32.GetWindowThreadProcessId(fg, None)
-                tid_self = ctypes.windll.kernel32.GetCurrentThreadId()
-                ctypes.windll.user32.AttachThreadInput(tid_fg, tid_self, True)
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-                ctypes.windll.user32.BringWindowToTop(hwnd)
-                ctypes.windll.user32.AttachThreadInput(tid_fg, tid_self, False)
-            except Exception:
-                pass
-
-        self.window.focus_force()
-        self.entry.focus_set()
-
-        # Retry up to 3 times — sometimes OS delays focus
-        if attempt < 3:
-            self.window.after(80, lambda: self._force_focus(attempt + 1))
-
-    def _on_focus_out(self, event):
-        """Close only if focus truly left the window (delayed check)."""
-        if not self.window or self.processing:
-            return
-        self.window.after(150, self._check_focus)
-
-    def _check_focus(self):
-        """Verify focus is still lost before hiding."""
-        if not self.window:
-            return
-        try:
-            focused = self.window.focus_get()
-            if focused is None:
-                self._hide()
-        except (KeyError, tk.TclError):
-            self._hide()
-
-    def _hide(self):
-        if self.window:
-            self.visible = False
-            self.window.destroy()
-            self.window = None
-
-    def _on_key(self, event):
-        if event.keysym in ("Return", "Escape", "Up", "Down"):
-            return
-        query = self.entry.get()
-        if query:
-            self.placeholder.place_forget()
-        else:
-            self.placeholder.place(x=14, y=8)
-        self._update_filter(query)
-
-    def _update_filter(self, query):
-        """Filters skills by input."""
-        q = query.lower().strip()
-        if q:
-            self.filtered = [s for s in self.skills if q in s["title"].lower()]
-        else:
-            self.filtered = list(self.skills)
-
-        self._render_list()
-
-    def _render_list(self):
-        """Renders the dropdown list."""
-        # Clear old rows
-        for row in self._skill_rows:
-            row.destroy()
-        self._skill_rows = []
-
-        if not self.filtered:
-            self.list_frame.pack_forget()
-            self.skill_hint.pack_forget()
-            self._resize(52)
-            return
-
-        for i, p in enumerate(self.filtered):
-            row = self._make_row(p["title"], p["description"], i)
-            self._skill_rows.append(row)
-
-        # "Add skill" shortcut — only when no filter is active
-        self._has_add_item = False
-        if not self.entry.get().strip():
-            row = self._make_row("+ Add your own skill", "", len(self.filtered))
-            self._skill_rows.append(row)
-            self._has_add_item = True
-
-        self.list_frame.pack(fill="x", padx=6, pady=(0, 2))
-        self.skill_hint.pack(fill="x", padx=12, pady=(0, 6))
-
-        self.window.update_idletasks()
-        needed = self.container.winfo_reqheight()
-        self._resize(needed + 4)
-
-        max_idx = len(self._skill_rows) - 1
-        self.selected_index = max(0, min(self.selected_index, max_idx))
-        self._highlight_row()
-
-    def _make_row(self, title, desc, idx):
-        """Creates a single skill row with title (bright) and description (dim)."""
-        row = tk.Frame(self.list_frame, bg="#1e1e2e", cursor="hand2")
-        row.pack(fill="x", padx=4, pady=1)
-
-        title_lbl = tk.Label(
-            row,
-            text=f"  {title}",
-            font=("Segoe UI", 13),
-            bg="#1e1e2e",
-            fg="#cdd6f4",
-            anchor="w",
-        )
-        title_lbl.pack(side="left")
-
-        # Click handler
-        row.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
-        title_lbl.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
-
-        return row
-
-    def _click_row(self, idx):
-        """Handle click on a skill row."""
-        self.selected_index = idx
-        self._highlight_row()
-        self._on_enter(None)
-
-    def _highlight_row(self):
-        """Highlights the selected row."""
-        for i, row in enumerate(self._skill_rows):
-            if i == self.selected_index:
-                row.config(bg="#45475a")
-                for child in row.winfo_children():
-                    child.config(bg="#45475a")
-            else:
-                row.config(bg="#1e1e2e")
-                for child in row.winfo_children():
-                    child.config(bg="#1e1e2e")
-
-    def _resize(self, height):
-        """Updates window height."""
-        if not self.window:
-            return
-        geo = self.window.geometry()
-        parts = geo.split("+")
-        wh = parts[0].split("x")
-        self.window.geometry(f"{wh[0]}x{height}+{parts[1]}+{parts[2]}")
-
-    def _select_next(self, event):
-        if self._skill_rows:
-            max_idx = len(self._skill_rows) - 1
-            self.selected_index = min(self.selected_index + 1, max_idx)
-            self._highlight_row()
-
-    def _select_prev(self, event):
-        if self._skill_rows:
-            self.selected_index = max(self.selected_index - 1, 0)
-            self._highlight_row()
-
-    def _on_enter(self, event):
-        """Runs the selected skill or copies the result."""
-        if self.has_result:
-            if self.last_result:
-                pyperclip.copy(self.last_result)
-                print("[Scryptian] Copied to clipboard.")
-            self._hide()
-            return
-
-        if not self.filtered:
-            return
-
-        # "Add skill" item selected
-        if self._has_add_item and self.selected_index >= len(self.filtered):
-            self._open_skills_folder()
-            self._hide()
-            return
-
-        skill = self.filtered[self.selected_index]
-
-        # Get text from clipboard
-        try:
-            input_text = pyperclip.paste()
-        except Exception:
-            input_text = ""
-
-        if not input_text.strip():
-            self._show_result("Clipboard is empty.")
-            return
-
-        # Hide list, show status
-        self.list_frame.pack_forget()
-        self.skill_hint.pack_forget()
-        self.entry.config(state="disabled")
-        self._show_result(f"⚙ {skill['title']}  —  processing...")
-
-        self.processing = True
-        print(f"[Scryptian] Running: {skill['title']}...")
-
-        def execute():
-            try:
-                # Ensure model is ready (download/load if needed)
-                if not bridge.is_model_ready():
-
-                    def on_progress(msg):
-                        self.root.after(0, lambda m=msg: self._show_result(m))
-
-                    bridge._get_llm(on_progress=on_progress)
-
-                mod = skill["module"]
-                if hasattr(mod, "prompt"):
-                    # Streaming mode
-                    p = mod.prompt(input_text)
-                    full_text = ""
-                    for chunk in bridge.generate_stream(p):
-                        full_text += chunk
-                        text_snapshot = full_text
-                        self.root.after(
-                            0, lambda t=text_snapshot: self._update_stream(t)
-                        )
-                    import re
-
-                    stripped = re.sub(r"<think>[\s\S]*?</think>", "", full_text).strip()
-                    self.processing = False
-                    if stripped and not stripped.startswith("[Scryptian Error]"):
-                        if self.window and self.visible:
-                            self.last_result = stripped
-                            self.has_result = True
-                            self.root.after(0, lambda: self._finish_stream())
-                        else:
-                            self.pending_result = stripped
-                        telemetry.send("skill_run", {"name": skill["title"]})
-                        print(f"[Scryptian] Done!")
-                    elif stripped.startswith("[Scryptian Error]"):
-                        self.root.after(0, lambda t=stripped: self._show_result(t))
-                    else:
-                        self.root.after(
-                            0,
-                            lambda: self._show_result(
-                                "Skill returned an empty result."
-                            ),
-                        )
-                else:
-                    # Fallback: non-streaming
-                    result = mod.run(input_text)
-                    self.processing = False
-                    if result and not result.startswith("[Scryptian Error]"):
-                        if self.window and self.visible:
-                            self.last_result = result
-                            self.has_result = True
-                            self.root.after(0, lambda: self._show_result(result))
-                        else:
-                            self.pending_result = result
-                        telemetry.send("skill_run", {"name": skill["title"]})
-                        print(f"[Scryptian] Done!")
-                    elif result and result.startswith("[Scryptian Error]"):
-                        self.root.after(0, lambda: self._show_result(result))
-                    else:
-                        self.root.after(
-                            0,
-                            lambda: self._show_result(
-                                "Skill returned an empty result."
-                            ),
-                        )
-            except Exception as e:
-                err_msg = f"Error: {e}"
-                self.root.after(0, lambda msg=err_msg: self._show_result(msg))
-
-        threading.Thread(target=execute, daemon=True).start()
-
-    def _update_stream(self, text):
-        """Updates result box with streaming text in real-time."""
-        if not self.window:
-            return
-
-        self.separator.pack_forget()
-        self.result_box.pack_forget()
-        self.hint_label.pack_forget()
-
-        self.result_box.config(state="normal")
-        self.result_box.delete("1.0", tk.END)
-        self.result_box.insert("1.0", text)
-        self.result_box.config(state="disabled")
-        self.result_box.see(tk.END)
-
-        chars_per_line = 45
-        visual_lines = 0
-        for line in text.split("\n"):
-            visual_lines += max(1, (len(line) // chars_per_line) + 1)
-
-        max_lines = 25
-        clamped = min(visual_lines, max_lines)
-        clamped = max(clamped, 2)
-
-        self.separator.pack(fill="x", padx=8, pady=(4, 0))
-        self.result_box.config(height=clamped)
-        self.result_box.pack(fill="x", padx=10, pady=(4, 4))
-
-        self.window.update_idletasks()
-        needed = self.container.winfo_reqheight()
-        self._resize(needed + 4)
-
-    def _finish_stream(self):
-        """Called when streaming is complete — shows hint label."""
-        if not self.window:
-            return
-        self.hint_label.pack(fill="x", padx=12, pady=(0, 6))
-        self.window.update_idletasks()
-        needed = self.container.winfo_reqheight()
-        self._resize(needed + 4)
-
-    def _show_result(self, text):
-        """Shows result below the bar, dynamically expanding the window."""
-        if not self.window:
-            return
-
-        # Unpack everything before repacking
-        self.separator.pack_forget()
-        self.result_box.pack_forget()
-        self.hint_label.pack_forget()
-
-        # Update text
-        self.result_box.config(state="normal")
-        self.result_box.delete("1.0", tk.END)
-        self.result_box.insert("1.0", text)
-        self.result_box.config(state="disabled")
-
-        # Height estimate based on dynamic bar width
-        chars_per_line = max(40, self._bar_width // 12)
-        visual_lines = 0
-        for line in text.split("\n"):
-            visual_lines += max(1, (len(line) // chars_per_line) + 1)
-
-        max_lines = 25
-        clamped = min(visual_lines, max_lines)
-        clamped = max(clamped, 2)
-
-        # Pack in correct order: separator → result → hint
-        self.separator.pack(fill="x", padx=8, pady=(4, 0))
-        self.result_box.config(height=clamped)
-        self.result_box.pack(fill="x", padx=10, pady=(4, 4))
-
-        if self.has_result:
-            self.hint_label.pack(fill="x", padx=12, pady=(0, 6))
-
-        self.window.update_idletasks()
-        needed = self.container.winfo_reqheight()
-        self._resize(needed + 4)
-
-    def _send_report(self):
-        """Send anonymous bug report with last result/error to PostHog."""
-        import platform
-
-        telemetry.send(
-            "bug_report",
-            {
-                "last_result": self.last_result[:500] if self.last_result else "",
-                "platform": platform.platform(),
-                "skills_count": len(self.skills),
-            },
-        )
-        self._show_result("Report sent. Thanks!")
-
-    def _open_skills_folder(self):
-        """Open skills folder in file manager (cross-platform)."""
-        import subprocess
-
-        if IS_WINDOWS:
-            os.startfile(SKILLS_DIR)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", SKILLS_DIR])
-        else:
-            subprocess.Popen(["xdg-open", SKILLS_DIR])
+        self.editor.toggle()
 
 
 def _kill_other_instances():
@@ -741,13 +197,11 @@ def main():
     print(f"\n[Scryptian] Skills loaded: {len(skills)}")
 
     # Check model file
-    from config import MODEL_PATH, MODEL_FILE
-
     if os.path.exists(MODEL_PATH):
         print(f"[Scryptian] Model: {MODEL_FILE}")
     else:
         print(
-            f"[Scryptian] WARNING: Model not found. It will download on first skill use."
+            "[Scryptian] WARNING: Model not found. It will download on first skill use."
         )
 
     print(f"[Scryptian] Hotkey: {HOTKEY}")
@@ -779,12 +233,13 @@ def main():
 
     tray.start(on_quit=root.quit, on_open=bar.toggle)
 
-    # Show bar on first launch so user knows it's working
+    # Show editor on first launch so user knows it's working
     root.after(500, bar.toggle)
 
-    import signal
+    def _sigint_handler(_sig, _frame):
+        root.after(0, root.quit)
 
-    signal.signal(signal.SIGINT, lambda *_: root.quit())
+    signal.signal(signal.SIGINT, _sigint_handler)
 
     try:
         root.mainloop()
