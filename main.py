@@ -193,7 +193,7 @@ def main():
         return
 
     for s in skills:
-        print(f"  → {s['title']}: {s['description']}")
+        print(f"  - {s['title']}: {s['description']}")
 
     print(f"\n[Scryptian] Skills loaded: {len(skills)}")
 
