@@ -63,5 +63,5 @@ def set_state(skill_id: str, data: dict) -> None:
 # LLM access — optional, re-exported for backward compatibility
 # Skills that need LLM: import bridge and use bridge.generate()
 # Skills that don't need LLM: import only bridge (state/profile)
-from llm import generate, generate_stream, is_model_ready, is_model_in_memory, was_just_downloaded, _get_llm
+from llm import generate, generate_stream, is_model_ready, is_model_in_memory, was_just_downloaded, _get_llm, set_progress_listener, set_download_start_listener
 from config import MODEL_FILE

@@ -39,110 +39,117 @@ def _is_valid_gguf(path: str) -> bool:
         return False
 
 
-def _download_model(on_progress=None):
-    from urllib import request
+# ── Progress reporting ──
+# A single global listener registered once by the UI layer. Every download/load
+# reports through it, no matter which background thread triggered the work.
+_progress_cb = None
+_download_start_cb = None
+
+
+def set_progress_listener(cb):
+    """Register a callback(msg: str) that receives download/load progress."""
+    global _progress_cb
+    _progress_cb = cb
+
+
+def set_download_start_listener(cb):
+    """Register a callback() fired once when a model download begins."""
+    global _download_start_cb
+    _download_start_cb = cb
+
+
+def _report(msg):
+    print(f"[Scryptian] {msg}")
+    if _progress_cb:
+        try:
+            _progress_cb(msg)
+        except Exception:
+            pass
+
+
+def _ssl_ctx():
     import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
+def _download_model():
+    """Download the model file once. Returns True on success. Reports via _report."""
+    from urllib import request
     import shutil
+    import socket
 
     os.makedirs(MODELS_DIR, exist_ok=True)
     tmp_path = MODEL_PATH + ".part"
 
     import telemetry
     telemetry.send("model_download_started")
-    print(f"[Scryptian] Starting model download: {MODEL_URL}")
 
-    if on_progress:
-        on_progress(f"Downloading {MODEL_FILE} for AI skills (one time only)...")
-
-    try:
+    if _download_start_cb:
         try:
-            free_bytes = shutil.disk_usage(MODELS_DIR).free
-            if free_bytes < 3 * 1024 * 1024 * 1024:
-                free_gb = free_bytes / (1024 ** 3)
-                telemetry.send("model_download_failed", {"error": "not enough disk space", "free_gb": round(free_gb, 2)})
-                if on_progress:
-                    on_progress(f"[Scryptian Error] Not enough disk space. Need ~2 GB, available: {free_gb:.1f} GB")
-                return False
+            _download_start_cb()
         except Exception:
             pass
 
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = ssl.create_default_context()
+    # Check free disk space (~2 GB needed)
+    try:
+        free = shutil.disk_usage(MODELS_DIR).free
+        if free < 3 * 1024 * 1024 * 1024:
+            free_gb = free / (1024 ** 3)
+            telemetry.send("model_download_failed", {"error": "not enough disk space", "free_gb": round(free_gb, 2)})
+            _report(f"[Scryptian Error] Not enough disk space. Need ~2 GB, available: {free_gb:.1f} GB")
+            return False
+    except Exception:
+        pass
 
-        max_retries = 3
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                if attempt > 1:
-                    if on_progress:
-                        on_progress(f"Retrying download... (attempt {attempt}/{max_retries})")
-                    import time
-                    time.sleep(3)
-                if on_progress:
-                    on_progress(f"Connecting to server...")
-                print(f"[Scryptian] Connecting (attempt {attempt}/{max_retries})...")
-                import socket
-                old_timeout = socket.getdefaulttimeout()
-                socket.setdefaulttimeout(30)
-                try:
-                    resp_obj = request.urlopen(MODEL_URL, timeout=30, context=ctx)
-                finally:
-                    socket.setdefaulttimeout(old_timeout)
-                with resp_obj as resp:
-                    total = int(resp.headers.get("Content-Length", 0))
-                    print(f"[Scryptian] Connected. Content-Length: {total // (1024*1024)} MB")
-                    downloaded = 0
-                    last_logged_pct = -1
-                    with open(tmp_path, "wb") as f:
-                        while True:
-                            chunk = resp.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total:
-                                pct = int(downloaded / total * 100)
-                                mb_done = downloaded // (1024 * 1024)
-                                mb_total = total // (1024 * 1024)
-                                if on_progress:
-                                    on_progress(f"Downloading AI model... {pct}%  ({mb_done}/{mb_total} MB)  —  one time only")
-                                if pct != last_logged_pct and pct % 5 == 0:
-                                    last_logged_pct = pct
-                                    print(f"[Scryptian] Download {pct}% ({mb_done}/{mb_total} MB)")
-                last_error = None
-                break
-            except Exception as e:
-                last_error = e
-                print(f"[Scryptian] Download attempt {attempt} failed: {e}")
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+    _report("Downloading AI model (~2 GB). One time only...")
 
-        if last_error:
-            raise last_error
+    try:
+        socket.setdefaulttimeout(60)
+        with request.urlopen(MODEL_URL, timeout=60, context=_ssl_ctx()) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            last_pct = -1
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        pct = int(downloaded / total * 100)
+                        if pct != last_pct:
+                            last_pct = pct
+                            mb = downloaded // (1024 * 1024)
+                            tot = total // (1024 * 1024)
+                            _report(f"Downloading AI model... {pct}%  ({mb}/{tot} MB)")
 
         shutil.move(tmp_path, MODEL_PATH)
         if not _is_valid_gguf(MODEL_PATH):
             os.remove(MODEL_PATH)
             telemetry.send("model_download_failed", {"error": "invalid GGUF after download"})
-            if on_progress:
-                on_progress("[Scryptian Error] Download corrupted. Please try again.")
+            _report("[Scryptian Error] Download corrupted. Please try again.")
             return False
+
         global _just_downloaded
         _just_downloaded = True
         telemetry.send("model_download_finished")
-        if on_progress:
-            on_progress("Download complete. Preparing model...")
         return True
     except Exception as e:
         if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
         telemetry.send("model_download_failed", {"error": str(e)})
-        if on_progress:
-            on_progress(f"[Scryptian Error] Download failed: {e}")
+        _report(f"[Scryptian Error] Download failed: {e}")
         return False
+    finally:
+        socket.setdefaulttimeout(None)
 
 
 def is_model_ready():
@@ -164,6 +171,9 @@ def was_just_downloaded() -> bool:
 
 def _get_llm(on_progress=None):
     global _llm
+    if on_progress:
+        set_progress_listener(on_progress)
+
     if _llm is not None:
         _schedule_unload()
         return _llm
@@ -174,18 +184,17 @@ def _get_llm(on_progress=None):
             return _llm
 
         if os.path.exists(MODEL_PATH) and not _is_valid_gguf(MODEL_PATH):
-            print("[Scryptian] Corrupted model file detected, deleting and re-downloading...")
+            _report("Removing corrupted model file...")
             os.remove(MODEL_PATH)
             import telemetry
             telemetry.send("model_corrupted")
 
         if not os.path.exists(MODEL_PATH):
-            if not _download_model(on_progress):
+            if not _download_model():
                 return None
 
         from llama_cpp import Llama
-        if on_progress:
-            on_progress("Loading model into memory...")
+        _report("Loading AI model into memory...")
         try:
             import telemetry as _tel
             import llama_cpp as _lc
@@ -229,10 +238,12 @@ def _get_llm(on_progress=None):
                 user_msg = "[Scryptian Error] Your CPU does not support the AI model. This requires a processor with AVX2 support (Intel 4th gen+ or AMD Ryzen+)."
             else:
                 user_msg = f"[Scryptian Error] Model load failed: {e}"
-            if on_progress:
-                on_progress(user_msg)
-            os.remove(MODEL_PATH)
-            print("[Scryptian] Deleted corrupted model file after load failure.")
+            _report(user_msg)
+            try:
+                os.remove(MODEL_PATH)
+                print("[Scryptian] Deleted model file after load failure.")
+            except Exception:
+                pass
             return None
 
         _schedule_unload()

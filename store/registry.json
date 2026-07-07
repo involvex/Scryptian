@@ -1,0 +1,39 @@
+{
+  "skills": [
+    {
+      "id": "translate-ru",
+      "title": "Translate to Russian",
+      "description": "Translate text to Russian (Google Translate)",
+      "author": "Scryptian",
+      "filename": "translate_ru.py"
+    },
+    {
+      "id": "translate-es",
+      "title": "Translate to Spanish",
+      "description": "Translate text to Spanish (Google Translate)",
+      "author": "Scryptian",
+      "filename": "translate_es.py"
+    },
+    {
+      "id": "translate-de",
+      "title": "Translate to German",
+      "description": "Translate text to German (Google Translate)",
+      "author": "Scryptian",
+      "filename": "translate_de.py"
+    },
+    {
+      "id": "translate-fr",
+      "title": "Translate to French",
+      "description": "Translate text to French (Google Translate)",
+      "author": "Scryptian",
+      "filename": "translate_fr.py"
+    },
+    {
+      "id": "translate-zh",
+      "title": "Translate to Chinese",
+      "description": "Translate text to Chinese (Google Translate)",
+      "author": "Scryptian",
+      "filename": "translate_zh.py"
+    }
+  ]
+}

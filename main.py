@@ -666,14 +666,11 @@ class ScryptianBar:
 
         def execute():
             try:
-                # Ensure model is ready (download/load if needed)
+                # Ensure model is ready (download/load if needed).
+                # Progress is delivered through the global listener registered at startup.
                 if not bridge.is_model_in_memory():
-                    def on_progress(msg):
-                        if self.visible:
-                            self.root.after(0, lambda m=msg: self._show_result(m))
-                    if not bridge.is_model_ready():
-                        self.root.after(0, lambda: self._show_result(f"One-time setup: downloading {bridge.MODEL_FILE} (~2 GB)..."))
-                    bridge._get_llm(on_progress=on_progress)
+                    self.root.after(0, lambda: self._show_result("Preparing AI model..."))
+                    bridge._get_llm()
                     if bridge.was_just_downloaded():
                         self.root.after(0, lambda: tray.show_notify_popup("Scryptian", "AI model ready. Skills are now available.", self.root))
 
@@ -775,12 +772,8 @@ class ScryptianBar:
         def execute():
             try:
                 if not bridge.is_model_in_memory():
-                    def on_progress(msg):
-                        if self.visible:
-                            self.root.after(0, lambda m=msg: self._show_result(m))
-                    if not bridge.is_model_ready():
-                        self.root.after(0, lambda: self._show_result(f"One-time setup: downloading {bridge.MODEL_FILE} (~2 GB)..."))
-                    bridge._get_llm(on_progress=on_progress)
+                    self.root.after(0, lambda: self._show_result("Preparing AI model..."))
+                    bridge._get_llm()
                     if bridge.was_just_downloaded():
                         self.root.after(0, lambda: tray.show_notify_popup("Scryptian", "AI model ready. Skills are now available.", self.root))
                 mod = skill["module"]
@@ -1377,6 +1370,23 @@ def main():
 
     bar = ScryptianBar(root, skills)
     toolbar = SelectionToolbar(root, skills, bar=bar)
+
+    # ── Model progress → UI (single global listener; works for any download thread) ──
+    def _model_progress(msg):
+        def _apply():
+            if bar.window and bar.visible:
+                bar._show_result(msg)
+        root.after(0, _apply)
+
+    def _model_download_start():
+        root.after(0, lambda: tray.show_notify_popup(
+            "Scryptian",
+            "Downloading AI model (~2 GB) in the background. You'll be notified when it's ready.",
+            root,
+        ))
+
+    bridge.set_progress_listener(_model_progress)
+    bridge.set_download_start_listener(_model_download_start)
 
     sel_queue = queue.Queue()
 
