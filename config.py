@@ -4,7 +4,7 @@ import os
 import sys
 
 # ── App version (used for skill bundle compatibility checks) ──
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.5.2"
 
 # ── Base directory (works for both .py and .exe) ──
 if getattr(sys, 'frozen', False):

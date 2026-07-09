@@ -34,6 +34,24 @@ a = Analysis(
         'certifi',
         'keyboard',
         'pyperclip',
+        # Stdlib modules used by the store-delivered PDF skill (reportlab +
+        # pdfminer.six). Those libraries are NOT analyzed by PyInstaller (they
+        # ship in the skill zip), so any stdlib module they import at runtime
+        # must be force-included here or the skill fails with
+        # "No module named '...'".
+        'html',
+        'html.parser',
+        'html.entities',
+        'unicodedata',
+        'fnmatch',
+        'ast',
+        'base64',
+        'pprint',
+        'binascii',
+        'xml',
+        'xml.sax',
+        'xml.sax.saxutils',
+        'xml.parsers.expat',
     ],
     hookspath=[],
     hooksconfig={},
