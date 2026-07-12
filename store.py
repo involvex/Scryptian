@@ -1,4 +1,4 @@
-# store.py — Online skill store: fetches registry.json from GitHub and installs skills locally.
+# store.py - Online skill store: fetches registry.json from GitHub and installs skills locally.
 
 import os
 import io

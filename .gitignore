@@ -24,3 +24,4 @@ models/
 # PDF translator lives in the store as a bundle zip; ignore the local dev copy
 # (its libs/ folder is ~22 MB). Distribution: store/skills/translate_pdf.zip
 skills/translate_pdf/
+skills/wikipedia/

@@ -21,6 +21,7 @@ import queue
 import selection_watcher
 import pins as pins_module
 import skill_editor
+import skill_settings
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -44,22 +45,100 @@ import bootstrap
 SKILLS_DIR = os.path.join(BASE_DIR, "skills")
 
 
-def _get_source_app(hwnd) -> str:
-    """Get exe name of the window that was active before Scryptian opened."""
+_BROWSERS = {
+    "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe",
+    "opera.exe", "opera_gx.exe", "vivaldi.exe", "arc.exe",
+}
+
+# Known sites, detected LOCALLY from the browser window title. Only the matched
+# label below is ever sent — the raw title (which may contain personal data)
+# never leaves the machine. No match -> "other". First hit wins.
+_SITE_KEYWORDS = (
+    ("youtube", ("youtube",)),
+    ("reddit", ("reddit",)),
+    ("gmail", ("gmail",)),
+    ("outlook", ("outlook",)),
+    ("chatgpt", ("chatgpt", "openai")),
+    ("github", ("github",)),
+    ("stackoverflow", ("stack overflow", "stackoverflow")),
+    ("wikipedia", ("wikipedia", "википедия")),
+    ("twitter/x", ("twitter", "/ x", "x.com")),
+    ("facebook", ("facebook",)),
+    ("instagram", ("instagram",)),
+    ("linkedin", ("linkedin",)),
+    ("telegram", ("telegram",)),
+    ("whatsapp", ("whatsapp",)),
+    ("discord", ("discord",)),
+    ("amazon", ("amazon",)),
+    ("netflix", ("netflix",)),
+    ("medium", ("medium",)),
+    ("quora", ("quora",)),
+    ("vk", ("vkontakte", "вконтакте")),
+    ("yandex", ("yandex", "яндекс")),
+    ("google-docs", ("google docs", "google документы")),
+    ("google-search", ("google search", " - поиск в google")),
+    ("notion", ("notion",)),
+)
+
+
+def _detect_site(title: str) -> str:
+    """Map a browser window title to a whitelisted site label (local only).
+
+    Returns the matched label, or "other". The input title is used purely for
+    this local lookup and is never stored or transmitted.
+    """
+    t = (title or "").lower()
+    if not t:
+        return "other"
+    for label, keys in _SITE_KEYWORDS:
+        for k in keys:
+            if k in t:
+                return label
+    return "other"
+
+
+def _get_source_app(hwnd) -> dict:
+    """Describe the window active before Scryptian opened.
+
+    Returns {"source_app": <exe>} and, only for browsers, {"source_site": <label>}
+    where the label comes from a local whitelist. The raw window title is never
+    included, so no personal data (document names, email subjects, private pages)
+    is ever transmitted. Scryptian's own process is ignored.
+    """
+    result = {"source_app": "unknown"}
     try:
         if not hwnd:
-            return "unknown"
+            return result
         import ctypes
         import ctypes.wintypes
         pid = ctypes.wintypes.DWORD()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+        # Ignore Scryptian's own windows — they must never count as a source.
+        if pid.value == ctypes.windll.kernel32.GetCurrentProcessId():
+            return result
+
         h = ctypes.windll.kernel32.OpenProcess(0x0410, False, pid.value)
         buf = ctypes.create_unicode_buffer(260)
         ctypes.windll.psapi.GetModuleFileNameExW(h, None, buf, 260)
         ctypes.windll.kernel32.CloseHandle(h)
-        return os.path.basename(buf.value).lower() or "unknown"
+        exe = os.path.basename(buf.value).lower() or "unknown"
+        result["source_app"] = exe
+
+        # Only browsers get site-level context — and only as a whitelisted label
+        # derived locally. For other apps the exe (e.g. winword.exe) is enough.
+        if exe in _BROWSERS:
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            title = ""
+            if length:
+                tbuf = ctypes.create_unicode_buffer(length + 1)
+                ctypes.windll.user32.GetWindowTextW(hwnd, tbuf, length + 1)
+                title = tbuf.value
+            result["source_site"] = _detect_site(title)
+
+        return result
     except Exception:
-        return "unknown"
+        return result
 
 
 def _check_input_limit(skill, input_text, via):
@@ -212,6 +291,7 @@ def _load_bundle(name, bundle_dir):
         return None
 
     return {
+        "id": manifest.get("id", name),
         "title": manifest.get("title", name),
         "description": manifest.get("description", ""),
         "author": manifest.get("author", ""),
@@ -220,6 +300,7 @@ def _load_bundle(name, bundle_dir):
         "filename": name,
         "needs_llm": bool(manifest.get("needs_llm", True)),
         "background": bool(manifest.get("background", False)),
+        "settings": manifest.get("settings", []),
         "format": "bundle",
     }
 
@@ -653,6 +734,17 @@ class ScryptianBar:
                 edit_lbl.pack(side="right")
                 edit_lbl.bind("<Button-1>", lambda e, s=skill_obj: self._open_edit_skill_editor(s))
 
+            # Settings gear for skills that declare a settings schema (left of star)
+            if skill_obj and skill_settings.has_settings(skill_obj):
+                gear_lbl = tk.Label(
+                    row, text="\ue713",
+                    font=("Segoe MDL2 Assets", 12),
+                    bg="#1e1e2e", fg="#a6adc8",
+                    cursor="hand2", padx=4,
+                )
+                gear_lbl.pack(side="right")
+                gear_lbl.bind("<Button-1>", lambda e, s=skill_obj: self._open_skill_settings(s))
+
         # Click handler
         row.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
         title_lbl.bind("<Button-1>", lambda e, i=idx: self._click_row(i))
@@ -670,6 +762,12 @@ class ScryptianBar:
             self.skills = scan_skills()
             self._update_filter(self.entry.get())
         skill_editor.open_editor(self.root, SKILLS_DIR, on_saved=on_saved, skill=skill)
+
+    def _open_skill_settings(self, skill):
+        def on_saved():
+            self.skills = scan_skills()
+            self._update_filter(self.entry.get())
+        skill_settings.open_settings(self.root, skill, on_saved=on_saved)
 
     def _toggle_pin(self, title):
         pins_module.toggle(title)
@@ -786,7 +884,7 @@ class ScryptianBar:
             self._bg_running = True
             print(f"[Scryptian] Running (background): {skill['title']}...")
             _bt0 = time.time()
-            _bg_source = _get_source_app(getattr(self, '_source_hwnd', None))
+            _bg_src = _get_source_app(getattr(self, '_source_hwnd', None))
             _bg_mod = skill["module"]
 
             def bg_execute():
@@ -798,7 +896,7 @@ class ScryptianBar:
                         bridge.notify(skill["title"], result.replace("[Scryptian Error]", "").strip() or "Task failed.")
                         telemetry.send("skill_failed", {"name": skill["title"], "reason": "bg_error", "error": result[:200]})
                     else:
-                        telemetry.send("skill_run", {"name": skill["title"], "source_app": _bg_source, "text_len": len(input_text), "elapsed_sec": round(time.time() - _bt0, 2), "background": True})
+                        telemetry.send("skill_run", {"name": skill["title"], **_bg_src, "text_len": len(input_text), "word_count": len((input_text or "").split()), "elapsed_sec": round(time.time() - _bt0, 2), "background": True})
                         _track_skill(skill["filename"].replace(".py", ""))
                         print(f"[Scryptian] Done (background): {skill['title']}")
                 except Exception as e:
@@ -831,7 +929,7 @@ class ScryptianBar:
         self.processing = True
         print(f"[Scryptian] Running: {skill['title']}...")
         _t0 = time.time()
-        _source_app = _get_source_app(getattr(self, '_source_hwnd', None))
+        _src = _get_source_app(getattr(self, '_source_hwnd', None))
 
         def execute():
             try:
@@ -863,7 +961,7 @@ class ScryptianBar:
                             self.root.after(0, lambda: self._finish_stream())
                         else:
                             self.pending_result = stripped
-                        telemetry.send("skill_run", {"name": skill["title"], "source_app": _source_app, "text_len": len(input_text), "elapsed_sec": round(time.time() - _t0, 2)})
+                        telemetry.send("skill_run", {"name": skill["title"], **_src, "text_len": len(input_text), "word_count": len((input_text or "").split()), "elapsed_sec": round(time.time() - _t0, 2)})
                         _track_skill(skill["filename"].replace(".py", ""))
                         print(f"[Scryptian] Done!")
                     elif stripped.startswith("[Scryptian Error]"):
@@ -889,7 +987,7 @@ class ScryptianBar:
                             self.root.after(0, self._finish_stream)
                         else:
                             self.pending_result = stripped
-                        telemetry.send("skill_run", {"name": skill["title"], "source_app": _source_app, "text_len": len(input_text), "elapsed_sec": round(time.time() - _t0, 2)})
+                        telemetry.send("skill_run", {"name": skill["title"], **_src, "text_len": len(input_text), "word_count": len((input_text or "").split()), "elapsed_sec": round(time.time() - _t0, 2)})
                         _track_skill(skill["filename"].replace(".py", ""))
                         print(f"[Scryptian] Done!")
                     else:
@@ -907,7 +1005,7 @@ class ScryptianBar:
                             self.root.after(0, lambda: self._show_result(result))
                         else:
                             self.pending_result = result
-                        telemetry.send("skill_run", {"name": skill["title"], "source_app": _source_app, "text_len": len(input_text), "elapsed_sec": round(time.time() - _t0, 2)})
+                        telemetry.send("skill_run", {"name": skill["title"], **_src, "text_len": len(input_text), "word_count": len((input_text or "").split()), "elapsed_sec": round(time.time() - _t0, 2)})
                         _track_skill(skill["filename"].replace(".py", ""))
                         print(f"[Scryptian] Done!")
                     elif result and result.startswith("[Scryptian Error]"):
@@ -1443,7 +1541,10 @@ class SelectionToolbar:
             return
 
         # Editable field: run inline and paste back
+        _src = _get_source_app(source_hwnd)
+
         def execute():
+            _t0 = time.time()
             try:
                 mod = skill["module"]
                 if hasattr(mod, "prompt"):
@@ -1455,7 +1556,12 @@ class SelectionToolbar:
                     result = mod.run(text)
                 if result and not result.startswith("[Scryptian Error]"):
                     pyperclip.copy(result)
-                    telemetry.send("skill_run", {"name": skill["title"], "via": "selection"})
+                    telemetry.send("skill_run", {
+                        "name": skill["title"], **_src, "via": "selection",
+                        "text_len": len(text or ""),
+                        "word_count": len((text or "").split()),
+                        "elapsed_sec": round(time.time() - _t0, 2),
+                    })
                     time.sleep(0.12)
                     ctypes.windll.user32.SetForegroundWindow(source_hwnd)
                     time.sleep(0.06)

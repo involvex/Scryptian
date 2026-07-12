@@ -66,6 +66,17 @@
       "archive": "translate_pdf.zip",
       "version": "1.8.1",
       "min_app_version": "0.5.1"
+    },
+    {
+      "id": "wikipedia",
+      "title": "Wikipedia",
+      "description": "Select a word or topic and get a clean Wikipedia summary (like a search engine answer)",
+      "author": "Scryptian",
+      "type": "bundle",
+      "filename": "wikipedia",
+      "archive": "wikipedia.zip",
+      "version": "1.1.0",
+      "min_app_version": "0.5.1"
     }
   ]
 }

@@ -27,6 +27,7 @@ a = Analysis(
         ('selection_watcher.py', '.'),
         ('pins.py', '.'),
         ('skill_editor.py', '.'),
+        ('skill_settings.py', '.'),
     ],
     hiddenimports=[
         'pystray._win32',
