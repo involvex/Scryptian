@@ -28,6 +28,7 @@ a = Analysis(
         ('pins.py', '.'),
         ('skill_editor.py', '.'),
         ('skill_settings.py', '.'),
+        ('.env', '.')
     ],
     hiddenimports=[
         'pystray._win32',
