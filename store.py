@@ -1,4 +1,4 @@
-# store.py - Online skill store: fetches registry.json from GitHub and installs skills locally.
+# store.py - Online skill store backed by Supabase and public Storage.
 
 import os
 import io
@@ -7,8 +7,31 @@ import ssl
 import zipfile
 from urllib import request
 
-REGISTRY_URL = "https://raw.githubusercontent.com/adrianium/Scryptian/refs/heads/main/store/registry.json"
-SKILL_BASE_URL = "https://raw.githubusercontent.com/adrianium/Scryptian/refs/heads/main/store/skills/"
+
+def _load_env():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip("\"'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        pass
+
+
+_load_env()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_TABLE = os.environ.get("SUPABASE_SKILLS_TABLE", "skills")
+SUPABASE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "skills")
 
 
 def _ssl_ctx():
@@ -19,11 +42,40 @@ def _ssl_ctx():
         return ssl.create_default_context()
 
 
+def _require_config():
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise RuntimeError(
+            "Supabase Store is not configured. Copy .env.example to .env and fill SUPABASE_URL and SUPABASE_ANON_KEY."
+        )
+
+
+def _headers():
+    return {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "User-Agent": "Scryptian Store",
+    }
+
+
+def _storage_url(path):
+    path = str(path or "").lstrip("/")
+    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
+
+
+def _skill_download_url(skill):
+    return skill.get("download_url") or _storage_url(
+        skill.get("storage_path") or skill.get("archive") or skill.get("filename", "")
+    )
+
+
 def fetch_registry(timeout=10):
-    """Fetch registry.json from GitHub. Returns list of skill dicts."""
-    resp = request.urlopen(REGISTRY_URL, timeout=timeout, context=_ssl_ctx())
-    data = json.loads(resp.read())
-    return data.get("skills", [])
+    """Fetch skill metadata from the public Supabase REST table."""
+    _require_config()
+    url = f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*"
+    req = request.Request(url, headers=_headers())
+    with request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data if isinstance(data, list) else data.get("skills", [])
 
 
 def _bundle_dir_name(skill):
@@ -78,18 +130,21 @@ def install_skill(skill, skills_dir):
     """Download and install a skill. Returns the installed path."""
     os.makedirs(skills_dir, exist_ok=True)
 
+    _require_config()
+
     if skill.get("type") == "bundle":
-        archive = skill.get("archive") or (_bundle_dir_name(skill) + ".zip")
-        url = SKILL_BASE_URL + archive
-        resp = request.urlopen(url, timeout=30, context=_ssl_ctx())
-        data = resp.read()
+        url = _skill_download_url(skill)
+        req = request.Request(url, headers=_headers())
+        with request.urlopen(req, timeout=30, context=_ssl_ctx()) as resp:
+            data = resp.read()
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             z.extractall(skills_dir)
         return os.path.join(skills_dir, _bundle_dir_name(skill))
 
     filename = skill.get("filename", "")
-    url = SKILL_BASE_URL + filename
-    resp = request.urlopen(url, timeout=15, context=_ssl_ctx())
+    url = _skill_download_url(skill)
+    req = request.Request(url, headers=_headers())
+    resp = request.urlopen(req, timeout=15, context=_ssl_ctx())
     content = resp.read()
     path = os.path.join(skills_dir, filename)
     with open(path, "wb") as f:
